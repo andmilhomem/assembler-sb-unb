@@ -22,7 +22,16 @@ int main(int argc, char *argv[]) {
     if (tamanho_arquivo == -1)
         return -1;
     
-    printf("%s\n",p_texto_fonte); //#####################RETIRAR
+    //#####################RETIRAR
+    FILE *arquivo = fopen("saida.txt", "w"); // "w" = write (escrita)
+    if (arquivo == NULL) {
+        perror("Erro ao abrir o arquivo");
+        return -1;
+    }
+    fprintf(arquivo, p_texto_fonte);
+
+    printf("%s\n",p_texto_fonte);
+    //#####################RETIRAR
 
     free(p_texto_fonte);
     
@@ -105,11 +114,14 @@ long preformata_texto(char **p_p_texto_fonte, long tamanho_arquivo) {
         if (e_comentario) { // Checa fim de comentário para parar de ignorar
             if (caractere_atual != '\n') continue; 
             else e_comentario = false;
-            }
-        if ((caractere_atual == '\n') && (caractere_anterior == '\n')) continue; // Ingnora sequência de novas linhas
+        }
+        if ((nova_posicao == 0) && (isspace(caractere_atual))) continue;
+        if (caractere_atual == '\r') continue; // Ignora carriage return
+        if ((caractere_atual == '\n') && (caractere_anterior == '\n')) continue; // Ignora sequência de novas linhas
         if ((caractere_atual == ' ') && (caractere_anterior == ' ')) continue; // Ignora sequência de espaços
         if ((caractere_atual == ' ') && (caractere_anterior == '\n')) continue; // Ignora espaços de início de linha
-        if ((caractere_atual == ' ') && (caractere_futuro == '\n')) continue; // Ignora espaços de final de linha
+        if ((caractere_atual == '\n') && (nova_posicao > 1) && (p_texto_preformatado[nova_posicao - 1] == ' ') && (p_texto_preformatado[nova_posicao - 2] == ':')) continue; // Trata caso ": \n"
+        if ((caractere_atual == ' ') && ((caractere_futuro == '\n') || (caractere_futuro == '\r'))) continue; // Ignora espaços de final de linha
         if ((caractere_atual == '\n') && (caractere_anterior == ':')) caractere_atual = ' '; // Substitui nova linha após rótulo por espaço
 
         p_texto_preformatado[nova_posicao] = toupper(caractere_atual); // Armazena caractere no buffer, transformando para letra maiúscula, se necessário
