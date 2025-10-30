@@ -4,13 +4,8 @@
 #include <stdbool.h>
 #include <ctype.h>
 
-
-// Definição de estruturas de dados utilizadas ao longo do programa
-
-typedef enum {BEGIN_L, END_L, MACRO_L, ENDMACRO_L, CORPO_MACRO_L, CHAMADA_MACRO_L, INDEFINIDA_L} tipo_linha;
-typedef enum {ROTULO, MAIS, VIRGULA, BEGIN, SPACE, CONST, END, MACRO, ENDMACRO, PARAMETRO_MACRO, CHAMADA_MACRO, ADD, SUB, MULT, DIV, JMP, JMPN, JMPP, JMPZ, COPY, LOAD, STORE, INPUT, OUTPUT, STOP, NUMERO, NOME} tipo_token;
-
-// ROTULO é o que resulta de XXXXXX: -> XXXXXX . A única análise é dos dois pontos finais. Não se considera a validade do rótulo.
+typedef enum {BEGIN_L, END_L, MACRO_L, ENDMACRO_L, CORPO_MACRO_L, INDEFINIDA_L} tipo_linha;
+typedef enum {ROTULO, MAIS, VIRGULA, BEGIN, SPACE, CONST, END, MACRO, ENDMACRO, PARAMETRO_MACRO, ADD, SUB, MULT, DIV, JMP, JMPN, JMPP, JMPZ, COPY, LOAD, STORE, INPUT, OUTPUT, STOP, NUMERO, NOME} tipo_token;
 
 typedef struct token {
     char *texto_token;
@@ -35,7 +30,7 @@ typedef struct cabecalho_texto {
 } cabecalho_texto;
 
 typedef struct posicao_memoria {
-    long endereco; // Funciona como identificador
+    long endereco;
     long valor;
     long deslocamento;
     struct posicao_memoria *proxima_pendencia;
@@ -50,7 +45,81 @@ typedef struct simbolo {
     struct simbolo *p_proximo_simbolo;
 } simbolo;
 
+long consulta_rotulo_lista_simbolos(simbolo **p_p_primeiro_simbolo, char *rotulo, posicao_memoria *p_referencia);
+void insere_rotulo_lista_simbolos(simbolo **p_p_primeiro_simbolo, char *rotulo, long endereco);
+void insere_posicao_memoria(posicao_memoria **p_p_ultima_posicao, posicao_memoria **p_p_primeira_posicao, long endereco, long valor, long deslocamento);
+void gera_codigo_com_pendencias(cabecalho_texto *p_cabecalho_texto, posicao_memoria **p_p_primeira_posicao, simbolo **p_p_primeiro_simbolo);
+void resolve_pendencias(simbolo *p_primeiro_simbolo);
+void gera_arquivo_pre(cabecalho_texto *p_cabecalho_texto, char* nome_arquivo_sem_extensao);
+void gera_arquivo_o1(posicao_memoria *p_primeira_posicao, simbolo *p_primeiro_simbolo, char* nome_arquivo_sem_extensao);
+void gera_arquivo_o2(posicao_memoria *p_primeira_posicao, char* nome_arquivo_sem_extensao);
+long obtem_texto_arquivo_fonte(int argc, char *argv[], char **p_p_texto_fonte);
+long preformata_texto(char **p_p_texto_fonte, long tamanho_arquivo);
+cabecalho_texto *estrutura_texto(char **p_p_texto_fonte);
+struct linha *cria_linha(char *texto_linha, linha *p_linha_anterior, bool *e_corpo_macro);
+struct token *cria_token(char *texto_token);
+bool e_numero(const char *str);
+void identifica_e_expande_macro(cabecalho_texto *p_cabecalho_texto, linha *p_linha_inicio_macro);
+linha *expande_chamada_macro(linha *p_linha_anterior_chamada, linha *p_linha_posterior_chamada, linha *p_linha_inicio_corpo_macro, char *texto_parametro_1, char *texto_parametro_2, char *texto_argumento_1, char *texto_argumento_2, int num_parametros);
 
+int main(int argc, char *argv[]) {
+
+    char *texto_fonte = NULL; // declara ponteiro para região da heap a ser criada região para armazenar texto que será obtido do arquivo-fonte
+    long tamanho_arquivo = obtem_texto_arquivo_fonte(argc, argv, &texto_fonte);
+
+    if (tamanho_arquivo == -1)
+        return -1;
+
+    tamanho_arquivo = preformata_texto(&texto_fonte, tamanho_arquivo);
+
+    if (tamanho_arquivo == -1)
+        return -1;
+    
+    //#####################RETIRAR
+    printf("%s\n", texto_fonte);
+    //#####################RETIRAR
+
+    // Estrutura texto
+    cabecalho_texto *p_cabecalho_texto = estrutura_texto(&texto_fonte);
+
+    // Expande macros
+    bool expandiu_macro = false;
+
+    linha *p_linha_atual = p_cabecalho_texto->p_primeira_linha;
+
+    while (p_linha_atual != NULL) {
+        if (p_linha_atual->tipo_linha == MACRO_L) {
+            identifica_e_expande_macro(p_cabecalho_texto, p_linha_atual);
+            expandiu_macro = true;
+        }
+        if (expandiu_macro) {
+            p_linha_atual = p_cabecalho_texto->p_primeira_linha;
+            expandiu_macro = false;
+        }
+        else p_linha_atual = p_linha_atual->p_linha_posterior;
+    }
+
+    int tamanho_nome_arquivo = strlen(argv[1]);
+    char *nome_arquivo_sem_extensao = strdup(argv[1]);
+    nome_arquivo_sem_extensao[tamanho_nome_arquivo - 4] = '\0';
+
+    gera_arquivo_pre(p_cabecalho_texto, nome_arquivo_sem_extensao);
+
+    posicao_memoria *p_primeira_posicao = NULL;
+    simbolo *p_primeiro_simbolo = NULL;
+
+    gera_codigo_com_pendencias(p_cabecalho_texto, &p_primeira_posicao, &p_primeiro_simbolo);
+
+    gera_arquivo_o1(p_primeira_posicao, p_primeiro_simbolo, nome_arquivo_sem_extensao);
+
+    resolve_pendencias(p_primeiro_simbolo);
+
+    gera_arquivo_o2(p_primeira_posicao, nome_arquivo_sem_extensao);
+
+    free(texto_fonte);
+
+    return 0;
+}
 
 long consulta_rotulo_lista_simbolos(simbolo **p_p_primeiro_simbolo, char *rotulo, posicao_memoria *p_referencia) {
     simbolo *p_simbolo_atual = *p_p_primeiro_simbolo;
@@ -353,88 +422,6 @@ void gera_arquivo_o2(posicao_memoria *p_primeira_posicao, char* nome_arquivo_sem
     fclose(arquivo);
 }
 
-
-
-// CABEÇALHO DO TEXTO
-
-// Protótipos de funções utilizadas ao longo do programa
-
-long obtem_texto_arquivo_fonte(int argc, char *argv[], char **p_p_texto_fonte);
-long preformata_texto(char **p_p_texto_fonte, long tamanho_arquivo);
-cabecalho_texto *estrutura_texto(char **p_p_texto_fonte);
-struct linha *cria_linha(char *texto_linha, linha *p_linha_anterior, bool *e_corpo_macro);
-struct token *cria_token(char *texto_token);
-bool e_numero(const char *str);
-void identifica_e_expande_macro(cabecalho_texto *p_cabecalho_texto, linha *p_linha_inicio_macro);
-// void exclui_linha_da_lista(cabecalho_texto *p_cabecalho_texto, linha *p_linha_atual);
-linha *expande_chamada_macro(linha *p_linha_anterior_chamada, linha *p_linha_posterior_chamada, linha *p_linha_inicio_corpo_macro, char *texto_parametro_1, char *texto_parametro_2, char *texto_argumento_1, char *texto_argumento_2, int num_parametros);
-
-int main(int argc, char *argv[]) {
-
-    char *texto_fonte = NULL; // declara ponteiro para região da heap a ser criada região para armazenar texto que será obtido do arquivo-fonte
-    long tamanho_arquivo = obtem_texto_arquivo_fonte(argc, argv, &texto_fonte);
-
-    if (tamanho_arquivo == -1)
-        return -1;
-
-    tamanho_arquivo = preformata_texto(&texto_fonte, tamanho_arquivo);
-
-    if (tamanho_arquivo == -1)
-        return -1;
-    
-    //#####################RETIRAR
-
-
-
-    printf("%s\n", texto_fonte);
-    //#####################RETIRAR
-
-    // Estrutura texto
-    cabecalho_texto *p_cabecalho_texto = estrutura_texto(&texto_fonte);
-
-    // Expande macros
-    bool expandiu_macro = false;
-
-    linha *p_linha_atual = p_cabecalho_texto->p_primeira_linha;
-
-    while (p_linha_atual != NULL) {
-        if (p_linha_atual->tipo_linha == MACRO_L) {
-            identifica_e_expande_macro(p_cabecalho_texto, p_linha_atual);
-            expandiu_macro = true;
-        }
-        if (expandiu_macro) {
-            p_linha_atual = p_cabecalho_texto->p_primeira_linha;
-            expandiu_macro = false;
-        }
-        else p_linha_atual = p_linha_atual->p_linha_posterior;
-    }
-
-    int tamanho_nome_arquivo = strlen(argv[1]);
-    char *nome_arquivo_sem_extensao = strdup(argv[1]);
-    nome_arquivo_sem_extensao[tamanho_nome_arquivo - 4] = '\0';
-
-    gera_arquivo_pre(p_cabecalho_texto, nome_arquivo_sem_extensao);
-
-    posicao_memoria *p_primeira_posicao = NULL;
-    simbolo *p_primeiro_simbolo = NULL;
-
-    gera_codigo_com_pendencias(p_cabecalho_texto, &p_primeira_posicao, &p_primeiro_simbolo);
-
-    gera_arquivo_o1(p_primeira_posicao, p_primeiro_simbolo, nome_arquivo_sem_extensao);
-
-    resolve_pendencias(p_primeiro_simbolo);
-
-    gera_arquivo_o2(p_primeira_posicao, nome_arquivo_sem_extensao);
-
-    // LIBERAR LINHAS, CABEÇALHOS E TOKENS AO FINAL, percorrendo estruturas de dados
-
-
-    free(texto_fonte);
-
-    return 0;
-}
-
-
 long obtem_texto_arquivo_fonte(int argc, char *argv[], char **p_p_texto_fonte) {
  /*   // RESTAURAR ##### 
     
@@ -608,7 +595,7 @@ struct token *cria_token(char *texto_token) {
 
     p_token_atual->p_token_posterior = NULL;
 
-    if (texto_token[pos_ultimo_caractere] == ':') { // Identifica rótulos XXXX:
+    if (texto_token[pos_ultimo_caractere] == ':') { // Identifica rótulos XXXX: sem checar validade
         texto_token[pos_ultimo_caractere] = '\0';
         p_token_atual->tipo_token = ROTULO;
 
@@ -801,24 +788,6 @@ cabecalho_texto *estrutura_texto(char **p_p_texto_fonte) {
     return p_cabecalho_texto;
 }
 
-/*
-void exclui_linha_da_lista(cabecalho_texto *p_cabecalho_texto, linha *p_linha_atual) {
-    if (p_linha_atual->p_linha_anterior == NULL) { // Caso de primeira linha do texto
-        if (p_linha_atual->p_linha_posterior == NULL) p_cabecalho_texto->p_primeira_linha = NULL;
-        else p_cabecalho_texto->p_primeira_linha = p_linha_atual->p_linha_posterior;
-    }
-    else { 
-        if (p_linha_atual->p_linha_posterior == NULL) { // Caso de linha de fim de texto
-            p_linha_atual->p_linha_anterior->p_linha_posterior = NULL;
-        } 
-        else { // Caso de linha de meio de texto
-            p_linha_atual->p_linha_anterior->p_linha_posterior = p_linha_atual->p_linha_posterior;
-            p_linha_atual->p_linha_posterior->p_linha_anterior = p_linha_atual->p_linha_anterior;
-        }
-    }
-}
-    */
-
 linha *expande_chamada_macro(linha *p_linha_anterior_chamada, linha *p_linha_posterior_chamada, linha *p_linha_inicio_corpo_macro, char *texto_parametro_1, char *texto_parametro_2, char *texto_argumento_1, char *texto_argumento_2, int num_parametros) {
     linha *p_linha_atual_corpo = p_linha_inicio_corpo_macro;
     linha *p_linha_atual_expandida = NULL;
@@ -914,14 +883,6 @@ linha *expande_chamada_macro(linha *p_linha_anterior_chamada, linha *p_linha_pos
     // Retorna a primeira linha expandida
     return p_primeira_linha_expandida;
 }
-
-/*
-
-Ir na linha antes da chamada de macro e mudar a referência à posterior dela (que será a primeira expandida)
-Ir na última expandida: conecta-la a proxima e a proxima a ela
-assim, a chamada estará automaticamente desconectada.
-
-*/
 
 void identifica_e_expande_macro(cabecalho_texto *p_cabecalho_texto, linha *p_linha_inicio_macro) {
 
@@ -1069,28 +1030,11 @@ void identifica_e_expande_macro(cabecalho_texto *p_cabecalho_texto, linha *p_lin
                 }
                 else {
                     p_linha_atual->p_linha_anterior->p_linha_posterior = p_primeira_linha_expandida;
-                }
-                //p_linha_atual = p_linha_atual->p_linha_posterior->p_linha_anterior; // Como linha atual, troca a linha de chamada pela última linha expandida
-/*              
-                // Conecta última linha expandida à linha posterior à chamada (e vice-versa)
-                if ((p_linha_atual->p_linha_posterior != NULL)) {
-                    linha *p_ultima_linha_expandida = p_primeira_linha_expandida;
-                    while ((p_ultima_linha_expandida->p_linha_posterior) != NULL) { // Encontra a última linha expandida
-                        p_ultima_linha_expandida = p_ultima_linha_expandida->p_linha_posterior;
-                    }
-                    p_ultima_linha_expandida->p_linha_posterior = p_linha_atual->p_linha_posterior;
-                    p_linha_atual->p_linha_posterior->p_linha_anterior = p_ultima_linha_expandida;
-                    
-                }
- */      
+                }      
             }
-
             p_token_atual = p_token_atual->p_token_posterior;
-
         }
-
         p_linha_atual = p_linha_atual->p_linha_posterior;
-
     }
 /*
     free(texto_parametro_1);
@@ -1099,117 +1043,3 @@ void identifica_e_expande_macro(cabecalho_texto *p_cabecalho_texto, linha *p_lin
     free(texto_argumento_2);
 */
 }
-
-
-    // Agora, separei coropo da macro e desconectei inicio e fim da macro.
-    // Tenho que encontrar chamadas da macro (usando p_linha_posterior e rotulo)
-    // Depois que achar chamadas, calcular tamanhos para expansão e expandir.
-
-
-
-
-
-
-    // Identifica chamadas da macro e faz extensão
-
-
-
-
-
-
-//MALLOCAR NOVAS LINHAS
-
-    // PESQUISAR LINHA MACRO_L
-// VER TEXTO DO RÓTULO
-// CALCULAR NÚMERO DE ARGUMENTOS E NOME DOS ARGUMENTOS VETOR DE DUAS POSIÇÕES
-// EXCLUIR ESSA LINHA (ALTERAR AS REFERÊNCIAS NA ANTERIOR E NA POSTERIOR)
-// DESALOCAR MEMÓRIA?
-
-// CONTAR NÚMERO DE LINHAS QUE CONTÊM O RÓTULO E SÃO CORPO_MACRO_L
-// CRIAR ARRAY COM ESSE NÚMERO DE POSIÇÕES
-// ARMAZENAR AS REFERÊNCIAS ÀS LINHAS
-// ARMAZENAR PARÂMETROS
-// PESQUISAR LINHAS CORPO_MACRO_L QUE TENHAM O MESMO RÓTULO
-// AINDA NÃO DESALOCAR MEMÓRIA
-// MAS JÁ EXCLUIR AS LINHAS DA LISTA (CUIDADO COM OS INDICES DOS LOOPS) TALVEZ SEJA REFERENCIA DO PROXIMO
-
-// EXCLUIR ENDMACRO, REFAZENDO REFERÊNCIAS
-
-// PESQUISAR AS LINHAS SUBEQUENTES QUE FAZEM REFERÊNCIA À MACRO (NOME = ROTULO)
-// ARMAZENAR ARGUMENTOS (USAR '\0') PARA SEM ARGUMENTOS
-// SUBSTITUIR PARÂMETROS E USAR FUNÇÃO CRIA_LINHA PARA CRIAR LINHAS
-// QUANDO TERMINAR, LIGAR A ÚLTIMA LINHA DE POIS DA ENDMACRO?
-
-// TALVEZ NÃO PRECISE MAIS DO RÓTULO DE CHAMADA DE MACRO
-
-
-/* 
-
-- nome da string ou do array é um endereço (o primeiro)
-- array ~ &array[0]
-- aritmética de ponteiros (p++)
-- struct pode ficar na stack (instanciação normal)
-- struct pode ficar na heap (instanciação como ponteiro com alocação dinâmica)
-        * é o caso de ponteiro para heap
-        * struct Pessoa *ptr = malloc(sizeof(struct Pessoa));
-        * e inicializar valores (ver folha)
-- desdiferenciação: (*x).y ~ x->y
-- caracteres são inteiros; convém fazer casting para unsigned char
-- sempre usar p ou ptr para indicar ponteiro
-
-
-- sempre declarar protótipos das funções
-    * tipo_retorno nome_funcao(tipo_param1 nome1, tipo_param2 nome2, ...);
-- receber nome do arquivo na main
-- guardá-lo para gerar os arquivos futuros
-- lembrar de fechar o arquivo após uso fclose()
-- rewind() para retornar ao início
-- ftell() fseek() fgetpos() fsetpos()
-- calcular tamanho do arquivo e alocar dobro da memória para o produto do preprocessamento
-    * malloc: 
-       - não inicializa; 
-       - recebe nº de bytes; 
-       - usar sizeof() para especificar; 
-       - retorna endereço inicial; 
-       - checar se endereço não é NULL (!nome) para erro;
-       - reserva área na heap
-       - no final do código, desalocar com free(endereço)
-    * calloc: 
-        - passo tamanho e número de elementos
-        - inicializa com zeros
-    * realloc:
-        - retorna novo endereço com adição de memória
-        - copia região antiga para a nova
-        - não sobrescrever endereço original antes de checar erro
-
-- posso ler caractere a caractere (fgetc) ou string (fgets)
-    * ele armazena em buffer em qualquer caso (não lê diretão do disco)
-
-- funções relevantes na primeira passada
-    * strtok(), vai tokenizando substituindo delimitador por '\0' e retornando endereços
-    * strchr(), strstr() fazem buscas
-    * há cópia, concatenação e comparação
-    * strlen(): nº de caracteres (não conta '\0')
-    * isalnum(), ispunct(), isspace() ['\n', ' ', '\t'], islower(), isupper(), isalpha(), isdigit()
-
-- as funções de str tem variante mais segura em que limitamos o tamanho
-
-- sempre guardar tamanho das strings (1 + nº de caracteres)
-
-- inicilizar structs:
-
-token t = {NULL, -1};
-linha l = {-1, NULL, NULL, NULL, NULL};
-
-
-*/
-
-
-// vou ter structs com dados das linhas alocar dinamicamente os campos
-// de strings.
-// o que cada struct conterá? já pensar nos tokens? 
-// tokens e tipos
-// estarão envoltas em nós (com ant, prox, struct)
-// alocar structs estática ou dinamicamente
-// tipo de ponteiro e casting
-
