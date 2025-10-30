@@ -7,8 +7,8 @@
 
 // Definição de estruturas de dados utilizadas ao longo do programa
 
-typedef enum {BEGIN_L, END_L, MACRO_L, ENDMACRO_L, CORPO_MACRO, CHAMADA_MACRO_L} tipo_linha;
-typedef enum {ROTULO, MAIS, VIRGULA, BEGIN, SPACE, CONST, END, MACRO, ENDMACRO, ARGUMENTO_MACRO, CHAMADA_MACRO, ADD, SUB, MULT, DIV, JMP, JMPN, JMPP, JMPZ, COPY, LOAD, STORE, INPUT, OUTPUT, STOP, NUMERO, NOME} tipo_token;
+typedef enum {BEGIN_L, END_L, MACRO_L, ENDMACRO_L, CORPO_MACRO_L, CHAMADA_MACRO_L, INDEFINIDA_L} tipo_linha;
+typedef enum {ROTULO, MAIS, VIRGULA, BEGIN, SPACE, CONST, END, MACRO, ENDMACRO, PARAMETRO_MACRO, CHAMADA_MACRO, ADD, SUB, MULT, DIV, JMP, JMPN, JMPP, JMPZ, COPY, LOAD, STORE, INPUT, OUTPUT, STOP, NUMERO, NOME} tipo_token;
 
 // ROTULO é o que resulta de XXXXXX: -> XXXXXX . A única análise é dos dois pontos finais. Não se considera a validade do rótulo.
 
@@ -25,6 +25,7 @@ typedef struct linha {
     token *p_primeiro_token;
     struct linha *p_linha_anterior;
     struct linha *p_linha_posterior;
+    char *rotulo_macro;
 } linha;
 
 typedef struct cabecalho_texto {
@@ -43,9 +44,9 @@ cabecalho_texto *estrutura_texto(char **p_p_texto_fonte);
 struct linha *cria_linha(char *texto_linha, linha *p_linha_anterior, bool *e_corpo_macro);
 struct token *cria_token(char *texto_token);
 bool e_numero(const char *str);
-
-//int identifica_macros();
-//int expande_macros();
+void identifica_e_expande_macro(cabecalho_texto *p_cabecalho_texto, linha *p_linha_inicio_macro);
+// void exclui_linha_da_lista(cabecalho_texto *p_cabecalho_texto, linha *p_linha_atual);
+linha *expande_chamada_macro(linha *p_linha_anterior_chamada, linha *p_linha_posterior_chamada, linha *p_linha_inicio_corpo_macro, char *texto_parametro_1, char *texto_parametro_2, char *texto_argumento_1, char *texto_argumento_2, int num_parametros);
 
 int main(int argc, char *argv[]) {
 
@@ -61,21 +62,46 @@ int main(int argc, char *argv[]) {
         return -1;
     
     //#####################RETIRAR
-    FILE *arquivo = fopen("saida.txt", "w"); // "w" = write (escrita)
-    if (arquivo == NULL) {
-        perror("Erro ao abrir o arquivo");
-        return -1;
-    }
-    fprintf(arquivo, "%s", texto_fonte);
+
+
 
     printf("%s\n", texto_fonte);
     //#####################RETIRAR
 
+    // Estrutura texto
     cabecalho_texto *p_cabecalho_texto = estrutura_texto(&texto_fonte);
 
-//TRATAR AQUI CORPO DE MACRO E MACRO   ( e depois ver quem está chamando estrutura texto, quais são os retornos possíveis)
+    // Expande macros
+    bool expandiu_macro = false;
+
+    linha *p_linha_atual = p_cabecalho_texto->p_primeira_linha;
+
+    while (p_linha_atual != NULL) {
+        if (p_linha_atual->tipo_linha == MACRO_L) {
+            identifica_e_expande_macro(p_cabecalho_texto, p_linha_atual);
+            expandiu_macro = true;
+        }
+        if (expandiu_macro) {
+            p_linha_atual = p_cabecalho_texto->p_primeira_linha;
+            expandiu_macro = false;
+        }
+        else p_linha_atual = p_linha_atual->p_linha_posterior;
+    }
 
 
+       // RETIRAR #############################################
+    FILE *arquivo = fopen("saida.txt", "w"); 
+    if (arquivo == NULL) {
+        perror("Erro ao abrir o arquivo");
+        return -1;
+    }
+    p_linha_atual = p_cabecalho_texto->p_primeira_linha;
+    while (p_linha_atual != NULL) {
+        fprintf(arquivo, "%s\n", p_linha_atual->texto_linha);
+        p_linha_atual = p_linha_atual->p_linha_posterior;
+    }
+    // ###################################################
+ 
 
     // LIBERAR LINHAS, CABEÇALHOS E TOKENS AO FINAL, percorrendo estruturas de dados
 
@@ -87,14 +113,23 @@ int main(int argc, char *argv[]) {
 
 
 long obtem_texto_arquivo_fonte(int argc, char *argv[], char **p_p_texto_fonte) {
+ /*   // RESTAURAR ##### 
+    
     // Trata erro de carga do programa
     if ((argc > 2) || argc == 1) {
         printf("# Erro na carga do programa!\nPara carregar o programa, use o terminal.\nIndique como único argumento o nome (com extensão e sem caminho) do arquivo ASM que deseja montar.\nO arquivo deve estar localizado no mesmo diretório do montador.");
         return -1;
     }
 
+    
     // Abre arquivo ASM
     FILE *arquivo_fonte = fopen(argv[1], "r");
+    
+ */   // RESTAURAR #####
+
+// RETIRAR #####
+FILE *arquivo_fonte = fopen(".\\casos_teste\\entradas\\correto_desformatado.asm", "r");
+// RETIRAR #########
 
     // Trata erro de abertura do arquivo ASM
     if (!arquivo_fonte) {
@@ -191,7 +226,7 @@ long preformata_texto(char **p_p_texto_fonte, long tamanho_arquivo) {
             nova_posicao += 2;
             caractere_anterior = '+';
         }
-        else if ((caractere_atual == ',') && (caractere_futuro != ' ')) { // Formata espaços após o símbolo "vírgula"
+        else if ((caractere_atual == ',') && (caractere_futuro != ' ')) { // Formata espaços após o símbolo "   "
                 p_texto_preformatado[nova_posicao] = ',';
                 p_texto_preformatado[nova_posicao + 1] = ' ';
                 nova_posicao += 2;
@@ -255,12 +290,12 @@ struct token *cria_token(char *texto_token) {
         p_token_atual->tipo_token = ROTULO;
 
     }
-    if (texto_token[0] == '&') { // Identifica argumentos de macros &XXXX
+    else if (texto_token[0] == '&') { // Identifica parâmetros de macros &XXXX
         strcpy(texto_token, texto_token + 1);
-        p_token_atual->tipo_token = ARGUMENTO_MACRO;
+        p_token_atual->tipo_token = PARAMETRO_MACRO;
     }
     // Identifica demais tipos de token
-    if (strcmp(texto_token, "+") == 0) p_token_atual->tipo_token = MAIS;
+    else if (strcmp(texto_token, "+") == 0) p_token_atual->tipo_token = MAIS;
     else if (strcmp(texto_token, ",") == 0) p_token_atual->tipo_token = VIRGULA;
     else if (strcmp(texto_token, "BEGIN") == 0) p_token_atual->tipo_token = BEGIN;
     else if (strcmp(texto_token, "END") == 0) p_token_atual->tipo_token = END;
@@ -288,7 +323,7 @@ struct token *cria_token(char *texto_token) {
     p_token_atual->texto_token = texto_token;
 
     // RETIRAR ###########################################################
-    printf("%s : %i\n",p_token_atual->texto_token , p_token_atual->tipo_token);
+   // printf("%s : %i\n",p_token_atual->texto_token , p_token_atual->tipo_token);
     // RETIRAR ########################################################### 
    
     return p_token_atual;
@@ -308,14 +343,14 @@ struct linha *cria_linha(char *texto_linha, linha *p_linha_anterior, bool *e_cor
         exit(1);
     }
 
-    char copia_linha[2 * (strlen(texto_linha) + 1)]; // Declara buffer na pilha, com memória dobrada para tratamento posterior de vírgulas
+    char copia_linha[2 * (strlen(texto_linha) + 1)]; // Declara buffer na pilha, com memória dobrada para tratamento posterior de   s
     
     int tamanho_linha = strlen(texto_linha) + 1;
 
     int pos_origem = 0;
     int pos_destino = 0;
 
-    while (pos_origem < tamanho_linha) { // copia texto da linha para buffer dando espaço antes de vírgulas
+    while (pos_origem < tamanho_linha) { // copia texto da linha para buffer dando espaço antes de  s
         if (texto_linha[pos_origem] == ',') {
             copia_linha[pos_destino] = ' ';
             pos_destino++;
@@ -360,15 +395,28 @@ struct linha *cria_linha(char *texto_linha, linha *p_linha_anterior, bool *e_cor
     }
 
     p_linha_atual->num_linha = 0; // só enumerar após expansão de macros
-    p_linha_atual->texto_linha = texto_linha; // texto sem espaço antes da vírgula
+    p_linha_atual->texto_linha = texto_linha; // texto sem espaço antes da  
     p_linha_atual->p_linha_anterior = p_linha_anterior; // recebido como argumento da função
     p_linha_atual->p_linha_posterior = NULL;
-
+    
     if (e_inicio_macro) p_linha_atual->tipo_linha = MACRO_L;
-    if (e_fim_macro) p_linha_atual->tipo_linha = ENDMACRO_L;
-    if (e_inicio_modulo) p_linha_atual->tipo_linha = BEGIN_L;
-    if (e_fim_modulo) p_linha_atual->tipo_linha = END_L;
+    else if (e_fim_macro) p_linha_atual->tipo_linha = ENDMACRO_L;
+    else if (e_inicio_modulo) p_linha_atual->tipo_linha = BEGIN_L;
+    else if (e_fim_modulo) p_linha_atual->tipo_linha = END_L;
+    else if (*e_corpo_macro) p_linha_atual->tipo_linha = CORPO_MACRO_L;
+    else p_linha_atual->tipo_linha = INDEFINIDA_L;
 
+    // Armazena rótulo da macro nas linhas
+    if (p_linha_atual->tipo_linha == MACRO_L) { // Primeira linha da macro pega rótulo do primeiro token
+        char *texto_primeiro_token = malloc(strlen((p_linha_atual->p_primeiro_token)->texto_token) + 1);
+        strcpy(texto_primeiro_token, (p_linha_atual->p_primeiro_token)->texto_token);
+        p_linha_atual->rotulo_macro = texto_primeiro_token;
+    }
+    else if ((p_linha_atual->tipo_linha == CORPO_MACRO_L) || (p_linha_atual->tipo_linha == ENDMACRO_L)) { // Demais linhas da macro copiam rótulo das linhas anteriores
+        p_linha_atual->rotulo_macro = p_linha_anterior->rotulo_macro;
+    }
+    else p_linha_atual->rotulo_macro = NULL;
+ 
     return p_linha_atual;
 
 }
@@ -388,7 +436,7 @@ cabecalho_texto *estrutura_texto(char **p_p_texto_fonte) {
     if (texto_linha_buffer == NULL) return NULL;  // Trata caso de texto sem caracteres diferentes de nova linha
     
     bool e_corpo_macro = false;
-    
+
     linha *p_primeira_linha = NULL; // Declara ponteiro para a primeira linha
     linha *p_linha_atual = NULL; // Declara ponteiro para receber endereço da linha após criação
     linha *p_linha_anterior = NULL; // Declara ponteiro para a linha anterior
@@ -404,6 +452,10 @@ cabecalho_texto *estrutura_texto(char **p_p_texto_fonte) {
         strcpy(texto_linha_heap, texto_linha_buffer);
 
         p_linha_atual = cria_linha(texto_linha_heap, p_linha_anterior, &e_corpo_macro);
+
+//RETIRAR ##########################
+ //       printf("%s\n",p_linha_atual->texto_linha);
+//##################################3
 
         if (p_primeira_linha == NULL) p_primeira_linha = p_linha_atual; // Indica linha de início de texto
         else { // Atualiza referências sobre linha antecedente do texto
@@ -426,6 +478,344 @@ cabecalho_texto *estrutura_texto(char **p_p_texto_fonte) {
     return p_cabecalho_texto;
 }
 
+/*
+void exclui_linha_da_lista(cabecalho_texto *p_cabecalho_texto, linha *p_linha_atual) {
+    if (p_linha_atual->p_linha_anterior == NULL) { // Caso de primeira linha do texto
+        if (p_linha_atual->p_linha_posterior == NULL) p_cabecalho_texto->p_primeira_linha = NULL;
+        else p_cabecalho_texto->p_primeira_linha = p_linha_atual->p_linha_posterior;
+    }
+    else { 
+        if (p_linha_atual->p_linha_posterior == NULL) { // Caso de linha de fim de texto
+            p_linha_atual->p_linha_anterior->p_linha_posterior = NULL;
+        } 
+        else { // Caso de linha de meio de texto
+            p_linha_atual->p_linha_anterior->p_linha_posterior = p_linha_atual->p_linha_posterior;
+            p_linha_atual->p_linha_posterior->p_linha_anterior = p_linha_atual->p_linha_anterior;
+        }
+    }
+}
+    */
+
+linha *expande_chamada_macro(linha *p_linha_anterior_chamada, linha *p_linha_posterior_chamada, linha *p_linha_inicio_corpo_macro, char *texto_parametro_1, char *texto_parametro_2, char *texto_argumento_1, char *texto_argumento_2, int num_parametros) {
+    linha *p_linha_atual_corpo = p_linha_inicio_corpo_macro;
+    linha *p_linha_atual_expandida = NULL;
+    linha *p_linha_anterior = p_linha_anterior_chamada;
+    linha *p_primeira_linha_expandida = NULL;
+
+    // Calcula variação máxima de tamanho da lista expandida, considerando que haverá, no máximo, dois argumentos por linha
+    int tamanho_menor_parametro = 0;
+    int tamanho_maior_argumento = 0;
+    int variacao_tamanho_linha = 0;
+
+    if (num_parametros == 1) {
+        if (strlen(texto_argumento_1) > strlen(texto_parametro_1) ) // Argumento maior que parâmetro
+            variacao_tamanho_linha = 2 * (strlen(texto_argumento_1) - strlen(texto_parametro_1));
+    }
+    else if (num_parametros == 2) {
+        if (strlen(texto_parametro_1) < strlen(texto_parametro_2)) tamanho_menor_parametro = strlen(texto_parametro_1);
+        else tamanho_menor_parametro = strlen(texto_parametro_2);
+        if (strlen(texto_argumento_1) > strlen(texto_argumento_2)) tamanho_maior_argumento = strlen(texto_argumento_1);
+        else tamanho_maior_argumento = strlen(texto_argumento_2);
+
+        if (tamanho_maior_argumento > tamanho_menor_parametro) variacao_tamanho_linha = 2 * (tamanho_maior_argumento - tamanho_menor_parametro);
+    }
+
+    // Expande chamada de macro
+    int tamanho_linha_corpo;
+    bool e_macro = false; // Apenas para chamar a criação de linha
+    bool e_primeira_linha_expandida = true;
+
+    while (p_linha_atual_corpo != NULL) { // Percorre linhas do corpo da macro
+        char *posicao_busca = NULL;
+        int posicao_origem = 0;
+        int posicao_destino = 0;
+        char *texto_linha_expandida = NULL;
+        char *texto_linha_corpo = p_linha_atual_corpo->texto_linha;
+
+        texto_linha_expandida = malloc(strlen((p_linha_atual_corpo->texto_linha)) + variacao_tamanho_linha + 1);
+        if (texto_linha_expandida == NULL) {
+        perror("Erro na alocação de memória para o texto da linha expandida");
+        exit(1);
+        }
+        if (num_parametros > 0) { // Macro tem parâmetros
+            while (texto_linha_corpo[posicao_origem] != '\0') { // Percorre o texto caractere a caractere
+                if (texto_linha_corpo[posicao_origem] != '&') {
+                    texto_linha_expandida[posicao_destino] = texto_linha_corpo[posicao_origem];
+                    posicao_origem++;
+                    posicao_destino++;
+                }
+                else {
+                    posicao_busca = texto_linha_corpo + posicao_origem + 1;
+                    if (strstr(posicao_busca,texto_parametro_1)) {   // Verifica se é parâmetro 1
+                        memcpy(texto_linha_expandida + posicao_destino, texto_argumento_1, strlen(texto_argumento_1));
+                        posicao_destino += strlen(texto_argumento_1);
+                        posicao_origem += 1 + strlen(texto_parametro_1);
+                    }
+                    else if ((texto_parametro_2 != NULL) && (strstr(posicao_busca,texto_parametro_2))) { // Verifica se é parâmtero 2
+                        memcpy(texto_linha_expandida + posicao_destino, texto_argumento_2, strlen(texto_argumento_2));
+                        posicao_destino += strlen(texto_argumento_2);
+                        posicao_origem += 1 + strlen(texto_parametro_2);
+                    }
+                    else { // Se não encontrar correspondência a parâmetro, apenas repete caractere
+                        posicao_origem++;
+                        posicao_destino++;
+                    }
+                }
+            }
+            texto_linha_expandida[posicao_destino] = '\0';
+            
+            p_linha_atual_expandida = cria_linha(texto_linha_expandida, p_linha_anterior, &e_macro);
+        }
+        else { // Macro não tem parâmetros
+            strcpy(texto_linha_expandida, p_linha_atual_corpo->texto_linha);
+            p_linha_atual_expandida = cria_linha(texto_linha_expandida, p_linha_anterior, &e_macro);
+        }
+        if (e_primeira_linha_expandida) {
+            p_primeira_linha_expandida = p_linha_atual_expandida;
+            e_primeira_linha_expandida = false;
+        }
+        else { // Se não é a primeira linha expandida, altera a referência na linha na anterior. Para a primeira isso é feito fora, porque envolve cabeçalho.
+            p_linha_anterior->p_linha_posterior = p_linha_atual_expandida;
+        }    
+    
+        p_linha_anterior = p_linha_atual_expandida;
+        p_linha_atual_corpo = p_linha_atual_corpo->p_linha_posterior;
+    }
+
+    // Conecta última linha expandida à primeira linha após chamada da macro (caso existente)
+    p_linha_anterior->p_linha_posterior = p_linha_posterior_chamada;
+    if ((p_linha_posterior_chamada) != NULL) p_linha_posterior_chamada->p_linha_anterior = p_linha_anterior;
+
+    // Retorna a primeira linha expandida
+    return p_primeira_linha_expandida;
+}
+
+/*
+
+Ir na linha antes da chamada de macro e mudar a referência à posterior dela (que será a primeira expandida)
+Ir na última expandida: conecta-la a proxima e a proxima a ela
+assim, a chamada estará automaticamente desconectada.
+
+*/
+
+void identifica_e_expande_macro(cabecalho_texto *p_cabecalho_texto, linha *p_linha_inicio_macro) {
+
+    // Identifica rótulo da macro
+    char *rotulo_macro = p_linha_inicio_macro->rotulo_macro;
+
+    // Identifica parâmetros da macro
+    token *parametros_macro[] = {NULL, NULL};
+
+    token *p_token_atual = p_linha_inicio_macro->p_primeiro_token;
+
+    int num_parametros = 0;
+
+    while ((p_token_atual != NULL) && (num_parametros < 2)) {
+        if (p_token_atual->tipo_token == PARAMETRO_MACRO) {
+            parametros_macro[num_parametros] = p_token_atual;
+            num_parametros++;
+        }
+        p_token_atual = p_token_atual->p_token_posterior;
+    }
+
+    char *texto_parametro_1 = NULL;
+    char *texto_parametro_2 = NULL;
+
+    if (num_parametros > 0) {
+        texto_parametro_1 = malloc(strlen(parametros_macro[0]->texto_token) + 1);
+
+        if (texto_parametro_1 == NULL) {
+            perror("Erro na alocação de memória para o parâmetro de uma macro");
+            exit(1);
+        }
+
+        strcpy(texto_parametro_1, parametros_macro[0]->texto_token);
+    }
+
+    if (num_parametros > 1) {
+        texto_parametro_2 = malloc(strlen(parametros_macro[1]->texto_token) + 1);
+
+        if (texto_parametro_2 == NULL) {
+            perror("Erro na alocação de memória para o parâmetro de uma macro");
+            exit(1);
+        }
+
+        strcpy(texto_parametro_2, parametros_macro[1]->texto_token);
+    }
+
+    // Desconecta da lista as linhas de início, meio e fim de macro, mantendo a ligação interna entre linhas de meio
+    linha *p_primeira_linha_corpo_macro = p_linha_inicio_macro->p_linha_posterior;
+    linha *p_linha_atual = p_primeira_linha_corpo_macro;
+    linha *p_linha_atual_temp = NULL;
+
+    while (p_linha_atual) {
+    //while (p_linha_atual && p_linha_atual->rotulo_macro && (strcmp(p_linha_atual->rotulo_macro, rotulo_macro) == 0)) {
+
+        if ((p_linha_atual->rotulo_macro) && (strcmp(p_linha_atual->rotulo_macro, rotulo_macro) == 0) && (p_linha_atual->tipo_linha == ENDMACRO_L)) {
+
+            // Conecta linhas antes e depois da definição da macro, caso existentes
+            if (p_linha_inicio_macro->p_linha_anterior == NULL) { // Caso de primeira linha do texto
+                if (p_linha_atual->p_linha_posterior == NULL) p_cabecalho_texto->p_primeira_linha = NULL;
+                else p_cabecalho_texto->p_primeira_linha = p_linha_atual->p_linha_posterior;
+            }
+            else { 
+                if (p_linha_atual->p_linha_posterior == NULL) { // Caso de linha de fim de texto
+                    p_linha_inicio_macro->p_linha_anterior->p_linha_posterior = NULL;
+                } 
+                else { // Caso de linha de meio de texto
+                    p_linha_inicio_macro->p_linha_anterior->p_linha_posterior = p_linha_atual->p_linha_posterior;
+                    p_linha_atual->p_linha_posterior->p_linha_anterior = p_linha_inicio_macro->p_linha_anterior;
+                }
+            }
+    
+            // Desconecta linha de início da definição da macro
+            p_linha_inicio_macro->p_linha_anterior = NULL;
+            p_linha_inicio_macro->p_linha_posterior = NULL;
+
+            // Desconecta linha de fim da definição da macro
+            p_linha_atual_temp = p_linha_atual->p_linha_posterior;
+            p_linha_atual->p_linha_anterior->p_linha_posterior = NULL;
+            p_linha_atual->p_linha_posterior = NULL;
+            p_linha_atual->p_linha_anterior = NULL;
+            
+            p_linha_atual = p_linha_atual_temp;
+            break;
+        }
+        else p_linha_atual = p_linha_atual->p_linha_posterior;    
+    }
+
+    // Identifica e expande linhas que contêm chamadas da macro
+
+    char *texto_argumento_1 = NULL;
+    char *texto_argumento_2 = NULL;
+    char *inicio_argumentos = NULL;
+    char *inicio_rotulo = NULL;
+    int tamanho_argumento = 0;
+    char *posicao_virgula = NULL;
+    int tamanho_texto_linha_expandida = 0;
+    int tamanho_texto_linha_original = 0;
+    int diferenca_tamanho_parametro_1 = 0;
+    int diferenca_tamanho_parametro_2 = 0;
+
+    while (p_linha_atual != NULL) { // Percorre linhas após linhas de definição de macro
+
+        p_token_atual = p_linha_atual->p_primeiro_token;
+
+        while (p_token_atual != NULL) { // Percorre tokens de cada linha
+         
+            if (strcmp(p_token_atual->texto_token, rotulo_macro) == 0) { // A linha contém chamada de macro    
+
+                linha *p_primeira_linha_expandida = NULL;
+                
+                if (num_parametros > 0) { // Caso em que é necessário substituir parâmetros por argumentos
+                
+                    inicio_rotulo = strstr(p_linha_atual->texto_linha, rotulo_macro);
+                    if (inicio_rotulo != NULL) inicio_rotulo = strdup(inicio_rotulo);
+                    inicio_argumentos = inicio_rotulo + strlen(rotulo_macro) + 1;
+                    tamanho_argumento = strlen(inicio_argumentos);
+
+                    texto_argumento_1 = malloc(tamanho_argumento + 1);
+
+                    if (texto_argumento_1 == NULL) {
+                        perror("Erro na alocação de memória para o argumento de uma macro");
+                        exit(1);
+                    }
+
+                    strcpy(texto_argumento_1, inicio_argumentos);
+                    if (texto_argumento_1[strlen(texto_argumento_1) - 1] == ' ') texto_argumento_1[strlen(texto_argumento_1) - 1] = '\0'; // Conserta eventual espaço sobressalente   
+                }
+                
+                if (num_parametros == 2) {
+
+                    posicao_virgula = strstr(inicio_argumentos, ",");
+
+                    posicao_virgula[0] = '\0'; // Corta texto do primeiro argumento na  
+                    texto_argumento_2 = posicao_virgula + 2; // Inicia texto do segundo argumento após espaço    
+                if (texto_argumento_2[strlen(texto_argumento_2) - 1] == ' ') texto_argumento_2[strlen(texto_argumento_2) - 1] = '\0'; // Conserta eventual espaço sobressalente   
+                }
+
+                strtok(texto_argumento_1, ",");
+
+                p_primeira_linha_expandida = expande_chamada_macro(p_linha_atual->p_linha_anterior, p_linha_atual->p_linha_posterior, p_primeira_linha_corpo_macro, texto_parametro_1, texto_parametro_2, texto_argumento_1, texto_argumento_2, num_parametros);
+                
+                // Conecta linha anterior à chamada à primeira linha expandida (o caminho contrário foi feita na função de expansão)
+                if ((p_linha_atual->p_linha_anterior) == NULL) { // Caso de chamada de macro no início do texto
+                    p_cabecalho_texto->p_primeira_linha = p_primeira_linha_expandida;
+                }
+                else {
+                    p_linha_atual->p_linha_anterior->p_linha_posterior = p_primeira_linha_expandida;
+                }
+                //p_linha_atual = p_linha_atual->p_linha_posterior->p_linha_anterior; // Como linha atual, troca a linha de chamada pela última linha expandida
+/*              
+                // Conecta última linha expandida à linha posterior à chamada (e vice-versa)
+                if ((p_linha_atual->p_linha_posterior != NULL)) {
+                    linha *p_ultima_linha_expandida = p_primeira_linha_expandida;
+                    while ((p_ultima_linha_expandida->p_linha_posterior) != NULL) { // Encontra a última linha expandida
+                        p_ultima_linha_expandida = p_ultima_linha_expandida->p_linha_posterior;
+                    }
+                    p_ultima_linha_expandida->p_linha_posterior = p_linha_atual->p_linha_posterior;
+                    p_linha_atual->p_linha_posterior->p_linha_anterior = p_ultima_linha_expandida;
+                    
+                }
+ */      
+            }
+
+            p_token_atual = p_token_atual->p_token_posterior;
+
+        }
+
+        p_linha_atual = p_linha_atual->p_linha_posterior;
+
+    }
+/*
+    free(texto_parametro_1);
+    free(texto_parametro_2);
+    free(texto_argumento_1);
+    free(texto_argumento_2);
+*/
+}
+
+
+    // Agora, separei coropo da macro e desconectei inicio e fim da macro.
+    // Tenho que encontrar chamadas da macro (usando p_linha_posterior e rotulo)
+    // Depois que achar chamadas, calcular tamanhos para expansão e expandir.
+
+
+
+
+
+
+    // Identifica chamadas da macro e faz extensão
+
+
+
+
+
+
+//MALLOCAR NOVAS LINHAS
+
+    // PESQUISAR LINHA MACRO_L
+// VER TEXTO DO RÓTULO
+// CALCULAR NÚMERO DE ARGUMENTOS E NOME DOS ARGUMENTOS VETOR DE DUAS POSIÇÕES
+// EXCLUIR ESSA LINHA (ALTERAR AS REFERÊNCIAS NA ANTERIOR E NA POSTERIOR)
+// DESALOCAR MEMÓRIA?
+
+// CONTAR NÚMERO DE LINHAS QUE CONTÊM O RÓTULO E SÃO CORPO_MACRO_L
+// CRIAR ARRAY COM ESSE NÚMERO DE POSIÇÕES
+// ARMAZENAR AS REFERÊNCIAS ÀS LINHAS
+// ARMAZENAR PARÂMETROS
+// PESQUISAR LINHAS CORPO_MACRO_L QUE TENHAM O MESMO RÓTULO
+// AINDA NÃO DESALOCAR MEMÓRIA
+// MAS JÁ EXCLUIR AS LINHAS DA LISTA (CUIDADO COM OS INDICES DOS LOOPS) TALVEZ SEJA REFERENCIA DO PROXIMO
+
+// EXCLUIR ENDMACRO, REFAZENDO REFERÊNCIAS
+
+// PESQUISAR AS LINHAS SUBEQUENTES QUE FAZEM REFERÊNCIA À MACRO (NOME = ROTULO)
+// ARMAZENAR ARGUMENTOS (USAR '\0') PARA SEM ARGUMENTOS
+// SUBSTITUIR PARÂMETROS E USAR FUNÇÃO CRIA_LINHA PARA CRIAR LINHAS
+// QUANDO TERMINAR, LIGAR A ÚLTIMA LINHA DE POIS DA ENDMACRO?
+
+// TALVEZ NÃO PRECISE MAIS DO RÓTULO DE CHAMADA DE MACRO
 
 
 /* 
