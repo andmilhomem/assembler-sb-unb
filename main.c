@@ -34,6 +34,330 @@ typedef struct cabecalho_texto {
     long total_linha;
 } cabecalho_texto;
 
+typedef struct posicao_memoria {
+    long endereco; // Funciona como identificador
+    long valor;
+    long deslocamento;
+    posicao_memoria *proxima_pendencia;
+    posicao_memoria *proxima_posicao;
+} posicao_memoria;
+
+typedef struct simbolo {
+    char *rotulo;
+    long endereco;
+    bool esta_definido;
+    posicao_memoria *p_primeira_pendencia;
+    simbolo *p_proximo_simbolo;
+} simbolo;
+
+
+
+long consulta_rotulo_lista_simbolos(simbolo *p_primeiro_simbolo, char *rotulo, posicao_memoria *p_referencia) {
+    simbolo *p_simbolo_atual = p_primeiro_simbolo;
+    simbolo *p_ultimo_simbolo = p_primeiro_simbolo;
+    posicao_memoria *p_pendencia_atual = NULL;
+    posicao_memoria *p_ultima_pendencia = NULL; 
+    bool simbolo_esta_na_lista = false;
+
+    // Checa se rótulo já está na lista de símbolos
+    while (p_simbolo_atual != NULL) {
+        if (strcmp(rotulo, p_simbolo_atual->rotulo) == 0) {  // Símbolo está na lista
+            if (p_simbolo_atual->esta_definido == true) {    // Símbolo já teve endereço definido
+                return p_simbolo_atual->endereco;
+            }
+            else { // Símbolo ainda não teve endereço definido
+                p_pendencia_atual =  p_simbolo_atual->p_primeira_pendencia;
+                if (p_pendencia_atual == NULL) p_simbolo_atual->p_primeira_pendencia = p_referencia; // Não há pendências
+                else { // Há pendências
+                    while (p_pendencia_atual != NULL) { // Encontra última pendência
+                        p_ultima_pendencia = p_pendencia_atual;
+                        p_pendencia_atual = p_pendencia_atual->proxima_pendencia;
+                    }
+                    p_ultima_pendencia->proxima_pendencia = p_referencia; // Insere no final da lista de pendências
+                }
+                return -1;
+            }
+        }
+        p_ultimo_simbolo = p_simbolo_atual; // Identifica último símbolo da lista
+        p_simbolo_atual = p_simbolo_atual->p_proximo_simbolo;
+    }
+    
+    // Insere novo símbolo na lista (heap)
+    simbolo *p_novo_simbolo = malloc(sizeof(simbolo));
+    if (p_novo_simbolo == NULL) {
+        perror("Erro na alocação de memória para o símbolo");
+    exit(1);
+    }
+
+    p_novo_simbolo->endereco = -1;
+    p_novo_simbolo->esta_definido = false;
+    p_novo_simbolo->p_primeira_pendencia = p_referencia;
+    p_novo_simbolo->rotulo = strdup(rotulo);
+    p_novo_simbolo->p_proximo_simbolo = NULL;
+    if (p_primeiro_simbolo != NULL) p_ultimo_simbolo->p_proximo_simbolo = p_novo_simbolo; // Se não é primeiro símbolo, faz conexão com ele
+    else p_primeiro_simbolo = p_novo_simbolo; // Se é primeiro símbolo, insere referência no cabeçalho
+    
+    return -1;
+}
+
+void insere_rotulo_lista_simbolos(simbolo *p_primeiro_simbolo, char *rotulo, long endereco) {
+    simbolo *p_simbolo_atual = p_primeiro_simbolo;
+    simbolo *p_ultimo_simbolo = p_primeiro_simbolo;
+
+    // Checa se rótulo já está na lista de símbolos
+    while (p_simbolo_atual != NULL) {
+        if (strcmp(rotulo, p_simbolo_atual->rotulo) == 0) {  // Símbolo está na lista
+            if (p_simbolo_atual->esta_definido == true) {    // Símbolo já teve endereço definido
+                printf("Erro de redefinição de símbolo!");
+                exit(1);
+            }
+            else { // Símbolo ainda não teve endereço definido
+                p_simbolo_atual->esta_definido = true;       
+                p_simbolo_atual->endereco = endereco;
+                return;
+            }
+        }
+        p_ultimo_simbolo = p_simbolo_atual; // Identifica último símbolo da lista
+        p_simbolo_atual = p_simbolo_atual->p_proximo_simbolo;
+    }
+
+    // Insere novo símbolo na lista (heap)
+    simbolo *p_novo_simbolo = malloc(sizeof(simbolo));
+    if (p_novo_simbolo == NULL) {
+        perror("Erro na alocação de memória para o símbolo");
+    exit(1);
+    }
+
+    p_novo_simbolo->endereco = endereco;
+    p_novo_simbolo->esta_definido = true;
+    p_novo_simbolo->p_primeira_pendencia = NULL;
+    p_novo_simbolo->rotulo = strdup(rotulo);
+    p_novo_simbolo->p_proximo_simbolo = NULL;
+    if (p_primeiro_simbolo != NULL) p_ultimo_simbolo->p_proximo_simbolo = p_novo_simbolo; // Se não é primeiro símbolo, faz conexão com o último
+    else p_primeiro_simbolo = p_novo_simbolo; // Se é primeiro símbolo, insere referência no cabeçalho
+
+    return;
+}
+
+void insere_posicao_memoria(posicao_memoria *p_ultima_posicao, posicao_memoria *p_primeira_posicao, long endereco, long valor, long deslocamento) {
+    posicao_memoria *p_nova_posicao = malloc(sizeof(posicao_memoria));
+    if (p_nova_posicao == NULL) {
+        perror("Erro na alocação de memória para a posição de memória");
+    exit(1);
+    }
+    
+    p_nova_posicao->endereco = endereco;
+    p_nova_posicao->valor = valor;
+    p_nova_posicao->deslocamento = deslocamento; // Offset em que caso de soma a nome
+    p_nova_posicao->proxima_pendencia = NULL;
+    p_nova_posicao->proxima_posicao = NULL;
+
+    if (p_primeira_posicao != NULL) p_ultima_posicao->proxima_posicao = p_nova_posicao; // Se não é primeira posição, faz conexão com a última
+    else p_primeira_posicao = p_nova_posicao; // Se é primeira posicao, insere referência no cabeçalho
+
+}
+
+void gera_codigo_com_pendencias(cabecalho_texto *p_cabecalho_texto, posicao_memoria *p_primeira_posicao, simbolo *p_primeiro_simbolo) {
+    token *p_token_atual = NULL;
+    linha *p_linha_atual = p_cabecalho_texto->p_primeira_linha;
+    posicao_memoria *p_ultima_posicao = p_primeira_posicao;
+    long endereco_atual = 0;
+
+    while (p_linha_atual != NULL) {
+        p_token_atual = p_linha_atual->p_primeiro_token;
+
+        while (p_token_atual != NULL) {
+            switch (p_token_atual->tipo_token) {
+                case ROTULO: 
+                    insere_rotulo_lista_simbolos(p_primeiro_simbolo, p_token_atual->texto_token, endereco_atual); 
+                    break;
+                case ADD:
+                    insere_posicao_memoria(p_ultima_posicao, p_primeira_posicao, endereco_atual, 1, 0);
+                    endereco_atual++;
+                    break;
+                case SUB:
+                    insere_posicao_memoria(p_ultima_posicao, p_primeira_posicao, endereco_atual, 2, 0);
+                    endereco_atual++;
+                    break; 
+                case MULT:
+                    insere_posicao_memoria(p_ultima_posicao, p_primeira_posicao, endereco_atual, 3, 0);
+                    endereco_atual++;
+                    break; 
+                case DIV:
+                    insere_posicao_memoria(p_ultima_posicao, p_primeira_posicao, endereco_atual, 4, 0);
+                    endereco_atual++;
+                    break; 
+                case JMP: 
+                    insere_posicao_memoria(p_ultima_posicao, p_primeira_posicao, endereco_atual, 5, 0);
+                    endereco_atual++;
+                    break; 
+                case JMPN:
+                    insere_posicao_memoria(p_ultima_posicao, p_primeira_posicao, endereco_atual, 6, 0);
+                    endereco_atual++;
+                    break; 
+                case JMPP:
+                    insere_posicao_memoria(p_ultima_posicao, p_primeira_posicao, endereco_atual, 7, 0);
+                    endereco_atual++;
+                    break; 
+                case JMPZ:
+                    insere_posicao_memoria(p_ultima_posicao, p_primeira_posicao, endereco_atual, 8, 0);
+                    endereco_atual++;
+                    break; 
+                case LOAD:
+                    insere_posicao_memoria(p_ultima_posicao, p_primeira_posicao, endereco_atual, 10, 0);
+                    endereco_atual++;
+                    break; 
+                case STORE:
+                    insere_posicao_memoria(p_ultima_posicao, p_primeira_posicao, endereco_atual, 11, 0);
+                    endereco_atual++;
+                    break; 
+                case INPUT:
+                    insere_posicao_memoria(p_ultima_posicao, p_primeira_posicao, endereco_atual, 12, 0);
+                    endereco_atual++;
+                    break; 
+                case OUTPUT:
+                    insere_posicao_memoria(p_ultima_posicao, p_primeira_posicao, endereco_atual, 13, 0);
+                    endereco_atual++;
+                    break;
+                case STOP:
+                    insere_posicao_memoria(p_ultima_posicao, p_primeira_posicao, endereco_atual, 14, 0);
+                    endereco_atual++;
+                    break;
+                case COPY:
+                    insere_posicao_memoria(p_ultima_posicao, p_primeira_posicao, endereco_atual, 9, 0);
+                    endereco_atual++;
+                    break;
+                case CONST:
+                    if (p_token_atual->p_token_posterior && p_token_atual->p_token_posterior->tipo_token == NUMERO) {
+                        insere_posicao_memoria(p_ultima_posicao, p_primeira_posicao, endereco_atual, atoi(p_token_atual->p_token_posterior->texto_token), 0);
+                        endereco_atual++;
+                    }
+                    break;
+                case SPACE:
+                    insere_posicao_memoria(p_ultima_posicao, p_primeira_posicao, endereco_atual, 0, 0);
+                    endereco_atual++;
+                    if (p_token_atual->p_token_posterior && p_token_atual->p_token_posterior->tipo_token == NUMERO) {
+                        int num = atoi(p_token_atual->p_token_posterior->texto_token);
+                        for ( int i = 0; i < num; i++) {
+                            insere_posicao_memoria(p_ultima_posicao, p_primeira_posicao, endereco_atual, 0, 0);
+                            endereco_atual++;
+                        }
+                    }    
+                    break;
+                case NOME:
+                    long deslocamento = 0;
+                    long endereco_rotulo = consulta_rotulo_lista_simbolos(p_primeiro_simbolo, p_token_atual->texto_token, endereco_atual);
+                    if (p_token_atual->p_token_posterior && p_token_atual->p_token_posterior->p_token_posterior && p_token_atual->p_token_posterior->tipo_token == MAIS) {
+                        deslocamento = atoi(p_token_atual->p_token_posterior->p_token_posterior->texto_token);
+                    }
+                    insere_posicao_memoria(p_ultima_posicao, p_primeira_posicao, endereco_atual, endereco_rotulo, deslocamento);
+                    endereco_atual++;
+                    break;
+
+            }
+            p_token_atual = p_token_atual->p_token_posterior;
+        }
+        p_linha_atual = p_linha_atual->p_linha_posterior;
+    }
+}
+
+void resolve_pendencias(simbolo *p_primeiro_simbolo) {
+    simbolo *p_simbolo_atual = p_primeiro_simbolo;
+    posicao_memoria *p_pendencia_atual = NULL;
+
+    while (p_simbolo_atual != NULL) {
+        long endereco_rotulo = p_simbolo_atual->endereco;
+        p_pendencia_atual = p_simbolo_atual->p_primeira_pendencia;
+        while (p_pendencia_atual != NULL) {
+            p_pendencia_atual->valor = endereco_rotulo + p_pendencia_atual->deslocamento;
+            p_simbolo_atual->p_primeira_pendencia = p_pendencia_atual->proxima_pendencia;
+            p_pendencia_atual->proxima_pendencia = NULL;
+        }
+        p_simbolo_atual = p_simbolo_atual->p_proximo_simbolo;
+    }
+}
+
+void gera_arquivo_pre(cabecalho_texto *p_cabecalho_texto, char* nome_arquivo_sem_extensao) {
+    char nome_arquivo_com_extensao[strlen(nome_arquivo_sem_extensao) + 5];
+    sprintf(nome_arquivo_com_extensao, "%s.pre", nome_arquivo_sem_extensao);
+
+    FILE *arquivo = fopen(nome_arquivo_com_extensao, "w"); 
+    if (arquivo == NULL) {
+        perror("Erro ao criar o arquivo .pre");
+        exit(1);
+    }
+
+    linha *p_linha_atual = p_cabecalho_texto->p_primeira_linha;
+
+    while (p_linha_atual != NULL) {
+        fprintf(arquivo, "%s\n", p_linha_atual->texto_linha);
+        p_linha_atual = p_linha_atual->p_linha_posterior;
+    }
+
+    fclose(arquivo);
+}
+
+void gera_arquivo_o1(posicao_memoria *p_primeira_posicao, simbolo *p_primeiro_simbolo, char* nome_arquivo_sem_extensao) {
+    char nome_arquivo_com_extensao[strlen(nome_arquivo_sem_extensao) + 4];
+    sprintf(nome_arquivo_com_extensao, "%s.o1", nome_arquivo_sem_extensao);
+
+    FILE *arquivo = fopen(nome_arquivo_com_extensao, "w"); 
+    if (arquivo == NULL) {
+        perror("Erro ao criar o arquivo .o1");
+        exit(1);
+    }
+
+    posicao_memoria *p_posicao_atual = p_primeira_posicao;
+
+    while (p_posicao_atual != NULL) {
+        fprintf(arquivo, "%ld ", p_posicao_atual->valor);
+        p_posicao_atual = p_posicao_atual->proxima_posicao; 
+    }
+
+    fprintf(arquivo, "\n\n# LISTA DE PENDÊNCIAS #\nRótulo -> Pendências");
+
+    simbolo *p_simbolo_atual = p_primeiro_simbolo;
+
+    while (p_simbolo_atual != NULL) {
+        if (p_simbolo_atual->p_primeira_pendencia == NULL) {
+            fprintf(arquivo, "\n%s -> não há", p_simbolo_atual->rotulo);
+        }
+        else {
+            posicao_memoria *p_pendencia_atual = p_simbolo_atual->p_primeira_pendencia;
+            fprintf(arquivo, "\n%s ->", p_simbolo_atual->rotulo);
+            while (p_pendencia_atual != NULL) {
+                fprintf(arquivo, " %ld", p_pendencia_atual->endereco);
+                p_pendencia_atual = p_pendencia_atual->proxima_pendencia;
+            }
+        }
+        p_simbolo_atual = p_simbolo_atual->p_proximo_simbolo;
+    }
+
+    fclose(arquivo);
+}
+
+void gera_arquivo_o2(posicao_memoria *p_primeira_posicao, char* nome_arquivo_sem_extensao) {
+    char nome_arquivo_com_extensao[strlen(nome_arquivo_sem_extensao) + 4];
+    sprintf(nome_arquivo_com_extensao, "%s.o2", nome_arquivo_sem_extensao);
+
+    FILE *arquivo = fopen(nome_arquivo_com_extensao, "w"); 
+    if (arquivo == NULL) {
+        perror("Erro ao criar o arquivo .o2");
+        exit(1);
+    }
+
+    posicao_memoria *p_posicao_atual = p_primeira_posicao;
+
+    while (p_posicao_atual != NULL) {
+        fprintf(arquivo, "%ld ", p_posicao_atual->valor);
+        p_posicao_atual = p_posicao_atual->proxima_posicao; 
+    }
+
+    fclose(arquivo);
+}
+
+
+
 // CABEÇALHO DO TEXTO
 
 // Protótipos de funções utilizadas ao longo do programa
@@ -88,20 +412,22 @@ int main(int argc, char *argv[]) {
         else p_linha_atual = p_linha_atual->p_linha_posterior;
     }
 
+    int tamanho_nome_arquivo = strlen(argv[1]);
+    char *nome_arquivo_sem_extensao = strdup(argv[1]);
+    nome_arquivo_sem_extensao[tamanho_nome_arquivo - 4] = '\0';
 
-       // RETIRAR #############################################
-    FILE *arquivo = fopen("saida.txt", "w"); 
-    if (arquivo == NULL) {
-        perror("Erro ao abrir o arquivo");
-        return -1;
-    }
-    p_linha_atual = p_cabecalho_texto->p_primeira_linha;
-    while (p_linha_atual != NULL) {
-        fprintf(arquivo, "%s\n", p_linha_atual->texto_linha);
-        p_linha_atual = p_linha_atual->p_linha_posterior;
-    }
-    // ###################################################
- 
+    gera_arquivo_pre(p_cabecalho_texto, nome_arquivo_sem_extensao);
+
+    posicao_memoria *p_primeira_posicao = NULL;
+    simbolo *p_primeiro_simbolo = NULL;
+
+    gera_codigo_com_pendencias(p_cabecalho_texto, p_primeira_posicao, p_primeiro_simbolo);
+
+    gera_arquivo_o1(p_primeira_posicao, p_primeiro_simbolo, nome_arquivo_sem_extensao);
+
+    resolve_pendencias(p_primeiro_simbolo);
+
+    gera_arquivo_o2(p_primeira_posicao, nome_arquivo_sem_extensao);
 
     // LIBERAR LINHAS, CABEÇALHOS E TOKENS AO FINAL, percorrendo estruturas de dados
 
