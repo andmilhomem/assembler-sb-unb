@@ -21,6 +21,7 @@ typedef struct linha {
     struct linha *p_linha_anterior;
     struct linha *p_linha_posterior;
     char *rotulo_macro;
+    erro *p_primeiro_erro;
 } linha;
 
 typedef struct cabecalho_texto {
@@ -45,6 +46,16 @@ typedef struct simbolo {
     struct simbolo *p_proximo_simbolo;
 } simbolo;
 
+typedef struct rotulo {
+    char *texto_rotulo;
+    struct rotulo *p_rotulo_posterior;
+} rotulo;
+
+typedef struct erro {
+    char *texto;
+    struct erro *p_erro_posterior;
+} erro;
+
 long consulta_rotulo_lista_simbolos(simbolo **p_p_primeiro_simbolo, char *rotulo, posicao_memoria *p_referencia);
 void insere_rotulo_lista_simbolos(simbolo **p_p_primeiro_simbolo, char *rotulo, long endereco);
 void insere_posicao_memoria(posicao_memoria **p_p_ultima_posicao, posicao_memoria **p_p_primeira_posicao, long endereco, long valor, long deslocamento);
@@ -61,6 +72,102 @@ struct token *cria_token(char *texto_token);
 bool e_numero(const char *str);
 void identifica_e_expande_macro(cabecalho_texto *p_cabecalho_texto, linha *p_linha_inicio_macro);
 linha *expande_chamada_macro(linha *p_linha_anterior_chamada, linha *p_linha_posterior_chamada, linha *p_linha_inicio_corpo_macro, char *texto_parametro_1, char *texto_parametro_2, char *texto_argumento_1, char *texto_argumento_2, int num_parametros);
+
+void cria_erro_na_linha(linha *p_linha_atual, char *mensagem_erro) {
+    // Identifica último erro da linha
+    erro *p_ultimo_erro_linha = p_linha_atual->p_primeiro_erro;
+    while (p_ultimo_erro_linha != NULL) {
+        p_ultimo_erro_linha = p_ultimo_erro_linha->p_erro_posterior;
+    } 
+
+    // Aloca memória para o erro na heap
+    erro *p_erro_atual = malloc(sizeof(erro));
+    if (p_erro_atual  == NULL) {
+        perror("Erro na alocação de memória para o erro na análise de código-fonte");
+        exit(1);
+    }
+    
+    // Preenche valores do erro
+    p_erro_atual->texto = mensagem_erro;
+    p_erro_atual->p_erro_posterior = NULL;
+
+    // Atualiza lista de erros da linha
+    if (p_ultimo_erro_linha != NULL) p_ultimo_erro_linha->p_erro_posterior = p_erro_atual; // Conecta erro atual ao último erro
+    else p_linha_atual->p_primeiro_erro = p_erro_atual; // Armazena erro como primeiro da linha
+}
+
+void analisa_codigo_fonte(cabecalho_texto *p_cabecalho_texto) {
+    rotulo *p_primeiro_rotulo = NULL;
+    rotulo *p_ultimo_rotulo = NULL;
+    linha *p_linha_atual = p_cabecalho_texto->p_primeira_linha;
+    bool codigo_fonte_contem_erro = false;
+   
+    // Identifica todos os rotulos e checa multiplicidade na linha e redefinição
+    while (p_linha_atual != NULL) {
+        token *p_token_atual = p_linha_atual->p_primeiro_token;
+        bool linha_tem_rotulo = false;
+        bool linha_redefine_rotulo = false;
+
+        while (p_token_atual != NULL) {
+            if (p_token_atual->tipo_token == ROTULO) {
+                // Checa se linha já contém rótulo (qualquer um)
+                if (linha_tem_rotulo == false) linha_tem_rotulo = true;
+                else {
+                    codigo_fonte_contem_erro = true;
+                    cria_erro_na_linha(p_linha_atual, " # Erro sintático: múltiplos rótulos na mesma linha");
+                }
+                // Checa se rótulo já foi definido anteriormente (percorre lista de rótulos)
+                while (p_primeiro_rotulo != NULL) {
+                    // Rótulo já foi definido em outro trecho do código
+                    if (strcmp(p_token_atual->texto_token, p_primeiro_rotulo->texto_rotulo) == 0) {                    
+                        codigo_fonte_contem_erro = true;
+                        cria_erro_na_linha(p_linha_atual, " # Erro semântico: redefinição de rótulo");
+                        codigo_fonte_contem_erro = true;
+                        linha_redefine_rotulo = true;
+                        break;
+                    }
+                    p_primeiro_rotulo = p_primeiro_rotulo->p_rotulo_posterior;
+                }
+                if (linha_redefine_rotulo == false) {
+                    // Insere rótulo na lista de rótulos
+                    rotulo *p_rotulo_atual = malloc(sizeof(rotulo));
+                    if (p_rotulo_atual  == NULL) {
+                        perror("Erro na alocação de memória para o rótulo na análise de código-fonte");
+                    exit(1);
+                    }    
+
+                    p_rotulo_atual->texto_rotulo = p_token_atual->texto_token;
+                    p_rotulo_atual->p_rotulo_posterior = NULL;
+
+                    if (p_ultimo_rotulo != NULL) p_ultimo_rotulo->p_rotulo_posterior = p_rotulo_atual; // Conecta rótulo atual ao último rótulo
+                    else p_primeiro_rotulo = p_rotulo_atual; // Armazena rótulo como primeiro da lista
+
+                    p_ultimo_rotulo = p_rotulo_atual; // Atualiza último rótulo da lista
+                }
+
+            }
+            p_token_atual = p_token_atual->p_token_posterior;
+        }
+        p_linha_atual = p_linha_atual->p_linha_posterior;
+    }
+
+    // fazer um grande loop linha por linha e analisar tudo em uma linha
+    // lembrar da tag de erro no codigo fonte
+    // usar outras bool, dentro de cada linha, para:
+    // a) registrar estrutura inicial (dois primeiros tokens) -> erro de instruçõa
+    // b) verificar qual instrução e número de nomes que a seguem
+    // obs.: erro léxico é token a token; rótulo não declarado é token a token
+    // rótulo não declarado: confrontar com lista com nomes
+    // erro léxico: verificar tokens do tipo nome
+    // instrução inexistente: pela posição? rotulo+begin ; rotulo+space ; rotulo+const; end; instrução ou diretiva -> se não se enquadra, instrução inexistente. erro sintático?
+    // instrução com número de parâmetros errado ver qual a instrução, contar número de nome após e confrontar
+
+    // se codifo não contém erro -> só retunr
+    // se codigo contem erro -> gera arquivos com erro pre o1 o2 em funcao à parte
+
+}
+
+// tem que fazer exit se houver erro; senão, return.
 
 int main(int argc, char *argv[]) {
 
