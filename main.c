@@ -5,7 +5,7 @@
 #include <ctype.h>
 
 typedef enum {BEGIN_L, END_L, MACRO_L, ENDMACRO_L, CORPO_MACRO_L, INDEFINIDA_L} tipo_linha;
-typedef enum {ROTULO, MAIS, VIRGULA, BEGIN, SPACE, CONST, END, MACRO, ENDMACRO, PARAMETRO_MACRO, ADD, SUB, MULT, DIV, JMP, JMPN, JMPP, JMPZ, COPY, LOAD, STORE, INPUT, OUTPUT, STOP, NUMERO, NOME} tipo_token;
+typedef enum {ROTULO, MAIS, VIRGULA, BEGIN, SPACE, CONST, END, MACRO, ENDMACRO, PARAMETRO_MACRO, ADD, SUB, MULT, DIV, JMP, JMPN, JMPP, JMPZ, COPY, LOAD, STORE, INPUT, OUTPUT, STOP, NUMERO, NOME, NAO_INICIALIZADO} tipo_token;
 
 typedef struct token {
     char *texto_token;
@@ -61,6 +61,8 @@ void insere_rotulo_lista_simbolos(simbolo **p_p_primeiro_simbolo, char *rotulo, 
 void insere_posicao_memoria(posicao_memoria **p_p_ultima_posicao, posicao_memoria **p_p_primeira_posicao, long endereco, long valor, long deslocamento);
 void gera_codigo_com_pendencias(cabecalho_texto *p_cabecalho_texto, posicao_memoria **p_p_primeira_posicao, simbolo **p_p_primeiro_simbolo);
 void resolve_pendencias(simbolo *p_primeiro_simbolo);
+bool codigo_fonte_contem_erro(cabecalho_texto *p_cabecalho_texto);
+void gera_arquivos_com_erros(cabecalho_texto *p_cabecalho_texto, char *nome_arquivo_sem_extensao);
 void gera_arquivo_pre(cabecalho_texto *p_cabecalho_texto, char* nome_arquivo_sem_extensao);
 void gera_arquivo_o1(posicao_memoria *p_primeira_posicao, simbolo *p_primeiro_simbolo, char* nome_arquivo_sem_extensao);
 void gera_arquivo_o2(posicao_memoria *p_primeira_posicao, char* nome_arquivo_sem_extensao);
@@ -72,102 +74,6 @@ struct token *cria_token(char *texto_token);
 bool e_numero(const char *str);
 void identifica_e_expande_macro(cabecalho_texto *p_cabecalho_texto, linha *p_linha_inicio_macro);
 linha *expande_chamada_macro(linha *p_linha_anterior_chamada, linha *p_linha_posterior_chamada, linha *p_linha_inicio_corpo_macro, char *texto_parametro_1, char *texto_parametro_2, char *texto_argumento_1, char *texto_argumento_2, int num_parametros);
-
-void cria_erro_na_linha(linha *p_linha_atual, char *mensagem_erro) {
-    // Identifica último erro da linha
-    erro *p_ultimo_erro_linha = p_linha_atual->p_primeiro_erro;
-    while (p_ultimo_erro_linha != NULL) {
-        p_ultimo_erro_linha = p_ultimo_erro_linha->p_erro_posterior;
-    } 
-
-    // Aloca memória para o erro na heap
-    erro *p_erro_atual = malloc(sizeof(erro));
-    if (p_erro_atual  == NULL) {
-        perror("Erro na alocação de memória para o erro na análise de código-fonte");
-        exit(1);
-    }
-    
-    // Preenche valores do erro
-    p_erro_atual->texto = mensagem_erro;
-    p_erro_atual->p_erro_posterior = NULL;
-
-    // Atualiza lista de erros da linha
-    if (p_ultimo_erro_linha != NULL) p_ultimo_erro_linha->p_erro_posterior = p_erro_atual; // Conecta erro atual ao último erro
-    else p_linha_atual->p_primeiro_erro = p_erro_atual; // Armazena erro como primeiro da linha
-}
-
-void analisa_codigo_fonte(cabecalho_texto *p_cabecalho_texto) {
-    rotulo *p_primeiro_rotulo = NULL;
-    rotulo *p_ultimo_rotulo = NULL;
-    linha *p_linha_atual = p_cabecalho_texto->p_primeira_linha;
-    bool codigo_fonte_contem_erro = false;
-   
-    // Identifica todos os rotulos e checa multiplicidade na linha e redefinição
-    while (p_linha_atual != NULL) {
-        token *p_token_atual = p_linha_atual->p_primeiro_token;
-        bool linha_tem_rotulo = false;
-        bool linha_redefine_rotulo = false;
-
-        while (p_token_atual != NULL) {
-            if (p_token_atual->tipo_token == ROTULO) {
-                // Checa se linha já contém rótulo (qualquer um)
-                if (linha_tem_rotulo == false) linha_tem_rotulo = true;
-                else {
-                    codigo_fonte_contem_erro = true;
-                    cria_erro_na_linha(p_linha_atual, " # Erro sintático: múltiplos rótulos na mesma linha");
-                }
-                // Checa se rótulo já foi definido anteriormente (percorre lista de rótulos)
-                while (p_primeiro_rotulo != NULL) {
-                    // Rótulo já foi definido em outro trecho do código
-                    if (strcmp(p_token_atual->texto_token, p_primeiro_rotulo->texto_rotulo) == 0) {                    
-                        codigo_fonte_contem_erro = true;
-                        cria_erro_na_linha(p_linha_atual, " # Erro semântico: redefinição de rótulo");
-                        codigo_fonte_contem_erro = true;
-                        linha_redefine_rotulo = true;
-                        break;
-                    }
-                    p_primeiro_rotulo = p_primeiro_rotulo->p_rotulo_posterior;
-                }
-                if (linha_redefine_rotulo == false) {
-                    // Insere rótulo na lista de rótulos
-                    rotulo *p_rotulo_atual = malloc(sizeof(rotulo));
-                    if (p_rotulo_atual  == NULL) {
-                        perror("Erro na alocação de memória para o rótulo na análise de código-fonte");
-                    exit(1);
-                    }    
-
-                    p_rotulo_atual->texto_rotulo = p_token_atual->texto_token;
-                    p_rotulo_atual->p_rotulo_posterior = NULL;
-
-                    if (p_ultimo_rotulo != NULL) p_ultimo_rotulo->p_rotulo_posterior = p_rotulo_atual; // Conecta rótulo atual ao último rótulo
-                    else p_primeiro_rotulo = p_rotulo_atual; // Armazena rótulo como primeiro da lista
-
-                    p_ultimo_rotulo = p_rotulo_atual; // Atualiza último rótulo da lista
-                }
-
-            }
-            p_token_atual = p_token_atual->p_token_posterior;
-        }
-        p_linha_atual = p_linha_atual->p_linha_posterior;
-    }
-
-    // fazer um grande loop linha por linha e analisar tudo em uma linha
-    // lembrar da tag de erro no codigo fonte
-    // usar outras bool, dentro de cada linha, para:
-    // a) registrar estrutura inicial (dois primeiros tokens) -> erro de instruçõa
-    // b) verificar qual instrução e número de nomes que a seguem
-    // obs.: erro léxico é token a token; rótulo não declarado é token a token
-    // rótulo não declarado: confrontar com lista com nomes
-    // erro léxico: verificar tokens do tipo nome
-    // instrução inexistente: pela posição? rotulo+begin ; rotulo+space ; rotulo+const; end; instrução ou diretiva -> se não se enquadra, instrução inexistente. erro sintático?
-    // instrução com número de parâmetros errado ver qual a instrução, contar número de nome após e confrontar
-
-    // se codifo não contém erro -> só retunr
-    // se codigo contem erro -> gera arquivos com erro pre o1 o2 em funcao à parte
-
-}
-
-// tem que fazer exit se houver erro; senão, return.
 
 int main(int argc, char *argv[]) {
 
@@ -210,22 +116,304 @@ int main(int argc, char *argv[]) {
     char *nome_arquivo_sem_extensao = strdup(argv[1]);
     nome_arquivo_sem_extensao[tamanho_nome_arquivo - 4] = '\0';
 
-    gera_arquivo_pre(p_cabecalho_texto, nome_arquivo_sem_extensao);
+    if (codigo_fonte_contem_erro == true) {
+        gera_arquivos_com_erros(p_cabecalho_texto, nome_arquivo_sem_extensao);
+    }
+    else {
+        gera_arquivo_pre(p_cabecalho_texto, nome_arquivo_sem_extensao);
 
-    posicao_memoria *p_primeira_posicao = NULL;
-    simbolo *p_primeiro_simbolo = NULL;
+        posicao_memoria *p_primeira_posicao = NULL;
+        simbolo *p_primeiro_simbolo = NULL;
 
-    gera_codigo_com_pendencias(p_cabecalho_texto, &p_primeira_posicao, &p_primeiro_simbolo);
+        gera_codigo_com_pendencias(p_cabecalho_texto, &p_primeira_posicao, &p_primeiro_simbolo);
 
-    gera_arquivo_o1(p_primeira_posicao, p_primeiro_simbolo, nome_arquivo_sem_extensao);
+        gera_arquivo_o1(p_primeira_posicao, p_primeiro_simbolo, nome_arquivo_sem_extensao);
 
-    resolve_pendencias(p_primeiro_simbolo);
+        resolve_pendencias(p_primeiro_simbolo);
 
-    gera_arquivo_o2(p_primeira_posicao, nome_arquivo_sem_extensao);
+        gera_arquivo_o2(p_primeira_posicao, nome_arquivo_sem_extensao);
+    }
 
     free(texto_fonte);
 
     return 0;
+}
+
+void gera_arquivos_com_erros(cabecalho_texto *p_cabecalho_texto, char *nome_arquivo_sem_extensao) {
+    // Arquivo .pre
+    char nome_arquivo_pre_com_extensao[strlen(nome_arquivo_sem_extensao) + 5];
+    sprintf(nome_arquivo_pre_com_extensao, "%s.pre", nome_arquivo_sem_extensao);
+
+    FILE *arquivo_pre = fopen(nome_arquivo_pre_com_extensao, "w"); 
+    if (arquivo_pre == NULL) {
+        perror("Erro ao criar o arquivo .pre");
+        exit(1);
+    }
+
+    linha *p_linha_atual = p_cabecalho_texto->p_primeira_linha;
+
+    while (p_linha_atual != NULL) {
+        fprintf(arquivo_pre, "%s\n", p_linha_atual->texto_linha);
+        erro *p_erro_atual = p_linha_atual->p_primeiro_erro;
+        while (p_erro_atual != NULL) {
+            fprintf(arquivo_pre, "%s", p_erro_atual->texto);
+            p_erro_atual = p_erro_atual->p_erro_posterior;
+        }
+        p_linha_atual = p_linha_atual->p_linha_posterior;
+    }
+
+    fclose(arquivo_pre);
+
+    // Arquivo .o1
+    char nome_arquivo_o1_com_extensao[strlen(nome_arquivo_sem_extensao) + 4];
+    sprintf(nome_arquivo_o1_com_extensao, "%s.o1", nome_arquivo_sem_extensao);
+
+    FILE *arquivo_o1 = fopen(nome_arquivo_o1_com_extensao, "w"); 
+    if (arquivo_o1 == NULL) {
+        perror("Erro ao criar o arquivo .o1");
+        exit(1);
+    }
+
+    p_linha_atual = p_cabecalho_texto->p_primeira_linha;
+
+    fputs("Código-objeto não gerado em razão dos erros abaixo.\nConfira o arquivo .pre!\n", arquivo_o1);
+
+    while (p_linha_atual != NULL) {    
+        erro *p_erro_atual = p_linha_atual->p_primeiro_erro;
+        while (p_erro_atual != NULL) {
+            fprintf(arquivo_o1, "\n%s", p_erro_atual->texto);
+            p_erro_atual = p_erro_atual->p_erro_posterior;
+        }
+        p_linha_atual = p_linha_atual->p_linha_posterior;
+    }
+
+    fclose(arquivo_o1);
+
+    // Arquivo .o2
+    char nome_arquivo_o2_com_extensao[strlen(nome_arquivo_sem_extensao) + 4];
+    sprintf(nome_arquivo_o2_com_extensao, "%s.o2", nome_arquivo_sem_extensao);
+
+    FILE *arquivo_o2 = fopen(nome_arquivo_o2_com_extensao, "w"); 
+    if (arquivo_o2 == NULL) {
+        perror("Erro ao criar o arquivo .o2");
+        exit(1);
+    }
+
+    p_linha_atual = p_cabecalho_texto->p_primeira_linha;
+
+    fputs("Código-objeto não gerado em razão dos erros abaixo.\nConfira o arquivo .pre!\n", arquivo_o2);
+
+    while (p_linha_atual != NULL) {        
+        erro *p_erro_atual = p_linha_atual->p_primeiro_erro;
+        while (p_erro_atual != NULL) {
+            fprintf(arquivo_o2, "\n%s", p_erro_atual->texto);
+            p_erro_atual = p_erro_atual->p_erro_posterior;
+        }
+        p_linha_atual = p_linha_atual->p_linha_posterior;
+    }
+    fclose(arquivo_o2);
+
+}
+
+void cria_erro_na_linha(linha *p_linha_atual, char *mensagem_erro) {
+    // Identifica último erro da linha
+    erro *p_ultimo_erro_linha = p_linha_atual->p_primeiro_erro;
+    while (p_ultimo_erro_linha != NULL) {
+        p_ultimo_erro_linha = p_ultimo_erro_linha->p_erro_posterior;
+    } 
+
+    // Aloca memória para o erro na heap
+    erro *p_erro_atual = malloc(sizeof(erro));
+    if (p_erro_atual  == NULL) {
+        perror("Erro na alocação de memória para o erro na análise de código-fonte");
+        exit(1);
+    }
+    
+    // Preenche valores do erro
+    p_erro_atual->texto = mensagem_erro;
+    p_erro_atual->p_erro_posterior = NULL;
+
+    // Atualiza lista de erros da linha
+    if (p_ultimo_erro_linha != NULL) p_ultimo_erro_linha->p_erro_posterior = p_erro_atual; // Conecta erro atual ao último erro
+    else p_linha_atual->p_primeiro_erro = p_erro_atual; // Armazena erro como primeiro da linha
+}
+
+bool codigo_fonte_contem_erro(cabecalho_texto *p_cabecalho_texto) {
+    rotulo *p_primeiro_rotulo = NULL;
+    rotulo *p_ultimo_rotulo = NULL;
+    linha *p_linha_atual = p_cabecalho_texto->p_primeira_linha;
+    bool codigo_fonte_contem_erro = false;
+   
+    // Identifica todos os rotulos e checa multiplicidade na linha e redefinição
+    while (p_linha_atual != NULL) {
+        token *p_token_atual = p_linha_atual->p_primeiro_token;
+        bool linha_tem_rotulo = false;
+        bool linha_redefine_rotulo = false;
+
+        while (p_token_atual != NULL) {
+            if (p_token_atual->tipo_token == ROTULO) {
+                // Checa se linha já contém rótulo (qualquer um)
+                if (linha_tem_rotulo == false) linha_tem_rotulo = true;
+                else {
+                    codigo_fonte_contem_erro = true;
+                    cria_erro_na_linha(p_linha_atual, " # Erro sintático: múltiplos rótulos na mesma linha");
+                }
+                // Checa se rótulo já foi definido anteriormente (percorre lista de rótulos)
+                rotulo *p_rotulo_atual = p_primeiro_rotulo;
+                while (p_rotulo_atual != NULL) {
+                    // Rótulo já foi definido em outro trecho do código
+                    if (strcmp(p_token_atual->texto_token, p_rotulo_atual->texto_rotulo) == 0) {                    
+                        codigo_fonte_contem_erro = true;
+                        cria_erro_na_linha(p_linha_atual, " # Erro semântico: redefinição de rótulo");
+                        linha_redefine_rotulo = true;
+                        break;
+                    }
+                    p_rotulo_atual = p_rotulo_atual->p_rotulo_posterior;
+                }
+                if (linha_redefine_rotulo == false) {
+                    // Checa se rótulo está bem formado
+                    bool token_esta_bem_formado = true;
+                    int num_caracteres = strlen(p_token_atual->texto_token);
+                    for (int i = 0; i < num_caracteres; i++) {
+                        // Rótulo só pode começar por letra ou "_"
+                        if (i == 0) { 
+                            if (((p_token_atual->texto_token)[i] != '_') && (isalpha((p_token_atual->texto_token)[i]) == false)) {
+                                token_esta_bem_formado = false;
+                                break;
+                            }
+                        }
+                        // Demais caracteres do rótulo podem ser apenas número, letra ou "_"
+                        else if (((p_token_atual->texto_token)[i] != '_') && (isalnum((p_token_atual->texto_token)[i]) == false)) { 
+                            token_esta_bem_formado = false;
+                            break;
+                        }
+                    }
+
+                    if (token_esta_bem_formado == false) {
+                        codigo_fonte_contem_erro = true;
+                        cria_erro_na_linha(p_linha_atual, " | Erro léxico: rótulo malformado");
+                    }
+
+                    // Insere rótulo na lista de rótulos, inclusive se mal formado
+                    rotulo *p_novo_rotulo = malloc(sizeof(rotulo));
+                    if (p_novo_rotulo  == NULL) {
+                        perror("Erro na alocação de memória para o rótulo na análise de código-fonte");
+                        exit(1);
+                    }    
+
+                    p_novo_rotulo->texto_rotulo = strdup(p_token_atual->texto_token);
+                    p_novo_rotulo->p_rotulo_posterior = NULL;
+
+                    if (p_ultimo_rotulo != NULL) p_ultimo_rotulo->p_rotulo_posterior = p_novo_rotulo; // Conecta rótulo atual ao último rótulo
+                    else p_primeiro_rotulo = p_novo_rotulo; // Armazena rótulo como primeiro da lista
+
+                    p_ultimo_rotulo = p_novo_rotulo; // Atualiza último rótulo da lista            
+                }
+
+            }
+            p_token_atual = p_token_atual->p_token_posterior;
+        }
+        p_linha_atual = p_linha_atual->p_linha_posterior;
+    }
+
+    // Identifica referências a rótulos inexistentes, uso de operações inexistentes e número de operandos incorreto 
+    p_linha_atual = p_cabecalho_texto->p_primeira_linha;
+
+    while (p_linha_atual != NULL) {
+        token *p_token_atual = p_linha_atual->p_primeiro_token;
+        bool linha_comeca_com_rotulo = false;
+        int num_operandos = 0;
+        bool token_esta_apos_operacao = false;
+        tipo_token operacao = NAO_INICIALIZADO;
+
+        for (int posicao_token = 0; p_token_atual != NULL; posicao_token++) {
+            bool rotulo_foi_definido = false;
+
+            if (posicao_token == 0 && p_token_atual->tipo_token == ROTULO) linha_comeca_com_rotulo = true;
+
+            if (p_token_atual->tipo_token == NOME) {
+                // Checa se rótulo referido foi definido
+                rotulo *p_rotulo_atual = p_primeiro_rotulo;
+                while (p_rotulo_atual != NULL) {
+                    // Rótulo já foi definido
+                    if (strcmp(p_token_atual->texto_token, p_rotulo_atual->texto_rotulo) == 0) {                    
+                        rotulo_foi_definido = true;
+                        break;
+                    }
+                    p_rotulo_atual = p_rotulo_atual->p_rotulo_posterior;
+                }
+
+                if (rotulo_foi_definido == false) {
+                    codigo_fonte_contem_erro = true;
+                    cria_erro_na_linha(p_linha_atual, " # Erro semântico: rótulo não definido");
+                }
+            }
+
+            // Checa validade de instrucao ou diretiva
+            if ((linha_comeca_com_rotulo == true && posicao_token == 1) || (linha_comeca_com_rotulo == false && posicao_token == 0)) {
+                if (p_token_atual->tipo_token == NUMERO     
+                    || p_token_atual->tipo_token == NOME
+                    || p_token_atual->tipo_token == MAIS
+                    || p_token_atual->tipo_token == VIRGULA) 
+                    {
+                    codigo_fonte_contem_erro = true;
+                    cria_erro_na_linha(p_linha_atual, " | Erro sintático: operação inexistente");
+                }
+            }
+            
+            // Armazena informações para checagem de número de operandos
+            if (token_esta_apos_operacao == true && operacao != CONST && operacao != SPACE && p_token_atual->tipo_token == NOME)  num_operandos++;
+            else if (token_esta_apos_operacao == true && (operacao == CONST || operacao == SPACE) && (p_token_atual->tipo_token == NOME || p_token_atual->tipo_token == NUMERO) ) num_operandos++;
+            
+            if (p_token_atual->tipo_token == SPACE
+                || p_token_atual->tipo_token == CONST
+                || p_token_atual->tipo_token == ADD
+                || p_token_atual->tipo_token == SUB
+                || p_token_atual->tipo_token == MULT
+                || p_token_atual->tipo_token == DIV
+                || p_token_atual->tipo_token == JMP
+                || p_token_atual->tipo_token == JMPN
+                || p_token_atual->tipo_token == JMPP
+                || p_token_atual->tipo_token == JMPZ
+                || p_token_atual->tipo_token == COPY
+                || p_token_atual->tipo_token == LOAD
+                || p_token_atual->tipo_token == STORE
+                || p_token_atual->tipo_token == INPUT
+                || p_token_atual->tipo_token == OUTPUT
+                || p_token_atual->tipo_token == STOP )
+                {
+                operacao = p_token_atual->tipo_token;
+                token_esta_apos_operacao = true;
+            }
+            p_token_atual = p_token_atual->p_token_posterior;
+        }
+
+        // Checa número de operandos
+        if ( false == 
+                (operacao == NAO_INICIALIZADO 
+            || (operacao == STOP    && num_operandos == 0)
+            || (operacao == SPACE   && (num_operandos == 0 || num_operandos == 1))
+            || (operacao == ADD     && num_operandos == 1)
+            || (operacao == SUB     && num_operandos == 1)
+            || (operacao == MULT    && num_operandos == 1)
+            || (operacao == DIV     && num_operandos == 1)
+            || (operacao == JMP     && num_operandos == 1)
+            || (operacao == JMPN    && num_operandos == 1)
+            || (operacao == JMPP    && num_operandos == 1)
+            || (operacao == JMPZ    && num_operandos == 1)
+            || (operacao == LOAD    && num_operandos == 1)
+            || (operacao == STORE   && num_operandos == 1)
+            || (operacao == INPUT   && num_operandos == 1)
+            || (operacao == OUTPUT  && num_operandos == 1)  
+            || (operacao == CONST   && num_operandos == 1)
+            || (operacao == COPY    && num_operandos == 2) ) )
+            {
+            codigo_fonte_contem_erro = true;
+            cria_erro_na_linha(p_linha_atual, " | Erro sintático: número de operandos incorreto");
+        }
+        p_linha_atual = p_linha_atual->p_linha_posterior;
+    }
+    return codigo_fonte_contem_erro;
 }
 
 long consulta_rotulo_lista_simbolos(simbolo **p_p_primeiro_simbolo, char *rotulo, posicao_memoria *p_referencia) {
