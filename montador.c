@@ -56,10 +56,13 @@ typedef struct rotulo {
     struct rotulo *p_rotulo_posterior;
 } rotulo;
 
+// PROTÓTIPOS DE FUNÇÕES
 
-// ANÁLISE: Estruturação do texto
+// ANÁLISE: Formatação do código-fonte
 long obtem_texto_arquivo_fonte(int argc, char *argv[], char **p_p_texto_fonte);
 long preformata_texto(char **p_p_texto_fonte, long tamanho_arquivo);
+
+// ANÁLISE: Estruturação do código-fonte
 cabecalho_texto *estrutura_texto(char **p_p_texto_fonte);
 struct linha *cria_linha(char *texto_linha, linha *p_linha_anterior, bool *e_corpo_macro);
 struct token *cria_token(char *texto_token);
@@ -68,6 +71,7 @@ bool e_numero(const char *str);
 // ANÁLISE: Expansão de macros
 void identifica_e_expande_macro(cabecalho_texto *p_cabecalho_texto, linha *p_linha_inicio_macro);
 linha *expande_chamada_macro(linha *p_linha_anterior_chamada, linha *p_linha_posterior_chamada, linha *p_linha_inicio_corpo_macro, char *texto_parametro_1, char *texto_parametro_2, char *texto_argumento_1, char *texto_argumento_2, int num_parametros);
+void gera_arquivo_pre(cabecalho_texto *p_cabecalho_texto, char* nome_arquivo_sem_extensao);
 
 // ANÁLISE: Identificação de erros no código-fonte
 bool codigo_fonte_contem_erro(cabecalho_texto *p_cabecalho_texto);
@@ -81,26 +85,18 @@ void gera_codigo_com_pendencias(cabecalho_texto *p_cabecalho_texto, posicao_memo
 
 // SÍNTESE: Resolução da lista de pendências (rótulos definidos após referência)
 void resolve_pendencias(simbolo *p_primeiro_simbolo);
-void gera_arquivo_pre(cabecalho_texto *p_cabecalho_texto, char* nome_arquivo_sem_extensao);
 void gera_arquivo_o1(posicao_memoria *p_primeira_posicao, simbolo *p_primeiro_simbolo, char* nome_arquivo_sem_extensao);
 void gera_arquivo_o2(posicao_memoria *p_primeira_posicao, char* nome_arquivo_sem_extensao);
 
 
-
-
+// DEFINIÇÕES DE FUNÇÕES
 
 int main(int argc, char *argv[]) {
 
     char *texto_fonte = NULL; // declara ponteiro para região da heap a ser criada região para armazenar texto que será obtido do arquivo-fonte
     long tamanho_arquivo = obtem_texto_arquivo_fonte(argc, argv, &texto_fonte);
 
-    if (tamanho_arquivo == -1)
-        return -1;
-
     tamanho_arquivo = preformata_texto(&texto_fonte, tamanho_arquivo);
-
-    if (tamanho_arquivo == -1)
-        return -1;
     
     // Estrutura texto
     cabecalho_texto *p_cabecalho_texto = estrutura_texto(&texto_fonte);
@@ -739,7 +735,7 @@ long obtem_texto_arquivo_fonte(int argc, char *argv[], char **p_p_texto_fonte) {
     // Trata erro de carga do programa
     if ((argc > 2) || argc == 1) {
         printf("# Erro na carga do programa!\nPara carregar o programa, use o terminal.\nIndique como único argumento o nome (com extensão e sem caminho) do arquivo ASM que deseja montar.\nO arquivo deve estar localizado no mesmo diretório do montador.");
-        return -1;
+        exit(1);
     }
     
     // Abre arquivo ASM
@@ -748,22 +744,22 @@ long obtem_texto_arquivo_fonte(int argc, char *argv[], char **p_p_texto_fonte) {
     // Trata erro de abertura do arquivo ASM
     if (!arquivo_fonte) {
         perror("# Erro na abertura do arquivo!\nVerifique se o arquivo ASM informado realmente existe e se seu nome está correto!");
-        return -1;
+        exit(1);
     }
 
     // Identifica tamanho do arquivo ASM e trata erros correspondentes
     if (fseek(arquivo_fonte, 0, SEEK_END)) {
         perror("# Erro na leitura do arquivo!");
-        return -1;
+        exit(1);
     }
     long tamanho_arquivo = ftell(arquivo_fonte);
     if (tamanho_arquivo == -1L) {
         perror("# Erro na leitura do arquivo!");
-        return -1;
+        exit(1);
     }
     if (fseek(arquivo_fonte, 0, SEEK_SET)) {
         perror("# Erro na leitura do arquivo!");
-        return -1;
+        exit(1);
     }
 
     // Aloca memória para o texto-fonte e guarda referência no ponteiro texto_fonte
@@ -771,14 +767,14 @@ long obtem_texto_arquivo_fonte(int argc, char *argv[], char **p_p_texto_fonte) {
     
     if (!*p_p_texto_fonte) {
         printf("# Erro na alocação do texto em memória!");
-        return -1;
+        exit(1);
     }
 
     // Copia conteúdo do arquivo para memório alocada e acrescenta '\0' ao final
     size_t elementos_lidos = fread(*p_p_texto_fonte, 1, tamanho_arquivo, arquivo_fonte);
     if (elementos_lidos != tamanho_arquivo) {
         printf(" Erro na leitura do arquivo!");
-        return -1;
+        exit(1);
     }
     (*p_p_texto_fonte)[tamanho_arquivo] = '\0';
     fclose(arquivo_fonte);
@@ -862,7 +858,7 @@ long preformata_texto(char **p_p_texto_fonte, long tamanho_arquivo) {
     if (!p_temporario) {
         perror("# Erro na realocação de memória do texto preformatado!");
         free(p_texto_preformatado);
-        return -1;
+        exit(1);
     }
     *p_p_texto_fonte = p_temporario;
 
@@ -1331,10 +1327,4 @@ void identifica_e_expande_macro(cabecalho_texto *p_cabecalho_texto, linha *p_lin
         }
         p_linha_atual = p_linha_atual->p_linha_posterior;
     }
-/*
-    free(texto_parametro_1);
-    free(texto_parametro_2);
-    free(texto_argumento_1);
-    free(texto_argumento_2);
-*/
 }
