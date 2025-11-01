@@ -4,7 +4,7 @@ Matrícula: 202033427
 GitHub do projeto: https://github.com/andmilhomem/assembler-sb-unb
 
 COMPILAÇÃO
-Para compilação o código-fonte para Windows usando GCC, utilize o comando:
+Para compilar o código-fonte para Windows usando GCC, utilize o comando:
 gcc montador.c -o montador.exe
 
 EXECUÇÃO
@@ -13,8 +13,8 @@ Para executar o programa no Windows, utilize o comando:
 
 INFORMAÇÕES
 Os testes foram realizados utilizando as seguintes versões:
-- Compilador: gcc 12.4.0 (Min
-- Arquitetura: x86_64
+- Compilador: gcc 12.4.0 (Cygwin)
+- Arquitetura: x86_64 (Windows 64 bits)
 
 PROTÓTIPOS DAS FUNÇÕES
 
