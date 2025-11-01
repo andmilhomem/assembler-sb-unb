@@ -75,6 +75,7 @@ void gera_arquivo_pre(cabecalho_texto *p_cabecalho_texto, char* nome_arquivo_sem
 
 // ANÁLISE: Identificação de erros no código-fonte
 bool codigo_fonte_contem_erro(cabecalho_texto *p_cabecalho_texto);
+void cria_erro_na_linha(linha *p_linha_atual, char *mensagem_erro);
 void gera_arquivos_com_erros(cabecalho_texto *p_cabecalho_texto, char *nome_arquivo_sem_extensao);
 
 // SÍNTESE: Resolução de diretivas, valores de instruções e referências a rótulos definidos previamente
