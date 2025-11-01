@@ -1,0 +1,11 @@
+JMP INICIO
+MULTIPLICA: LOAD A
+MULT B
+STORE R
+INICIO: INPUT 1A <---- | Erro semântico: rótulo não definido
+INPUT B
+MULTIPLICA <---- | Erro sintático: operação inexistente
+OUTPUT R
+A: SPACE
+B: SPACE
+R: SPACE

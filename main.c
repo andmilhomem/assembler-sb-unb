@@ -4,8 +4,15 @@
 #include <stdbool.h>
 #include <ctype.h>
 
+// ESTRUTURAS DE DADOS
+
 typedef enum {BEGIN_L, END_L, MACRO_L, ENDMACRO_L, CORPO_MACRO_L, INDEFINIDA_L} tipo_linha;
 typedef enum {ROTULO, MAIS, VIRGULA, BEGIN, SPACE, CONST, END, MACRO, ENDMACRO, PARAMETRO_MACRO, ADD, SUB, MULT, DIV, JMP, JMPN, JMPP, JMPZ, COPY, LOAD, STORE, INPUT, OUTPUT, STOP, NUMERO, NOME, NAO_INICIALIZADO} tipo_token;
+
+typedef struct erro {
+    char *texto;
+    struct erro *p_erro_posterior;
+} erro;
 
 typedef struct token {
     char *texto_token;
@@ -26,8 +33,6 @@ typedef struct linha {
 
 typedef struct cabecalho_texto {
     linha *p_primeira_linha;
-    linha *p_ultima_linha;
-    long total_linha;
 } cabecalho_texto;
 
 typedef struct posicao_memoria {
@@ -51,29 +56,38 @@ typedef struct rotulo {
     struct rotulo *p_rotulo_posterior;
 } rotulo;
 
-typedef struct erro {
-    char *texto;
-    struct erro *p_erro_posterior;
-} erro;
 
-long consulta_rotulo_lista_simbolos(simbolo **p_p_primeiro_simbolo, char *rotulo, posicao_memoria *p_referencia);
-void insere_rotulo_lista_simbolos(simbolo **p_p_primeiro_simbolo, char *rotulo, long endereco);
-void insere_posicao_memoria(posicao_memoria **p_p_ultima_posicao, posicao_memoria **p_p_primeira_posicao, long endereco, long valor, long deslocamento);
-void gera_codigo_com_pendencias(cabecalho_texto *p_cabecalho_texto, posicao_memoria **p_p_primeira_posicao, simbolo **p_p_primeiro_simbolo);
-void resolve_pendencias(simbolo *p_primeiro_simbolo);
-bool codigo_fonte_contem_erro(cabecalho_texto *p_cabecalho_texto);
-void gera_arquivos_com_erros(cabecalho_texto *p_cabecalho_texto, char *nome_arquivo_sem_extensao);
-void gera_arquivo_pre(cabecalho_texto *p_cabecalho_texto, char* nome_arquivo_sem_extensao);
-void gera_arquivo_o1(posicao_memoria *p_primeira_posicao, simbolo *p_primeiro_simbolo, char* nome_arquivo_sem_extensao);
-void gera_arquivo_o2(posicao_memoria *p_primeira_posicao, char* nome_arquivo_sem_extensao);
+// ANÁLISE: Estruturação do texto
 long obtem_texto_arquivo_fonte(int argc, char *argv[], char **p_p_texto_fonte);
 long preformata_texto(char **p_p_texto_fonte, long tamanho_arquivo);
 cabecalho_texto *estrutura_texto(char **p_p_texto_fonte);
 struct linha *cria_linha(char *texto_linha, linha *p_linha_anterior, bool *e_corpo_macro);
 struct token *cria_token(char *texto_token);
 bool e_numero(const char *str);
+
+// ANÁLISE: Expansão de macros
 void identifica_e_expande_macro(cabecalho_texto *p_cabecalho_texto, linha *p_linha_inicio_macro);
 linha *expande_chamada_macro(linha *p_linha_anterior_chamada, linha *p_linha_posterior_chamada, linha *p_linha_inicio_corpo_macro, char *texto_parametro_1, char *texto_parametro_2, char *texto_argumento_1, char *texto_argumento_2, int num_parametros);
+
+// ANÁLISE: Identificação de erros no código-fonte
+bool codigo_fonte_contem_erro(cabecalho_texto *p_cabecalho_texto);
+void gera_arquivos_com_erros(cabecalho_texto *p_cabecalho_texto, char *nome_arquivo_sem_extensao);
+
+// SÍNTESE: Resolução de diretivas, valores de instruções e referências a rótulos definidos previamente
+long consulta_rotulo_lista_simbolos(simbolo **p_p_primeiro_simbolo, char *rotulo, posicao_memoria *p_referencia);
+void insere_rotulo_lista_simbolos(simbolo **p_p_primeiro_simbolo, char *rotulo, long endereco);
+void insere_posicao_memoria(posicao_memoria **p_p_ultima_posicao, posicao_memoria **p_p_primeira_posicao, long endereco, long valor, long deslocamento);
+void gera_codigo_com_pendencias(cabecalho_texto *p_cabecalho_texto, posicao_memoria **p_p_primeira_posicao, simbolo **p_p_primeiro_simbolo);
+
+// SÍNTESE: Resolução da lista de pendências (rótulos definidos após referência)
+void resolve_pendencias(simbolo *p_primeiro_simbolo);
+void gera_arquivo_pre(cabecalho_texto *p_cabecalho_texto, char* nome_arquivo_sem_extensao);
+void gera_arquivo_o1(posicao_memoria *p_primeira_posicao, simbolo *p_primeiro_simbolo, char* nome_arquivo_sem_extensao);
+void gera_arquivo_o2(posicao_memoria *p_primeira_posicao, char* nome_arquivo_sem_extensao);
+
+
+
+
 
 int main(int argc, char *argv[]) {
 
@@ -88,10 +102,6 @@ int main(int argc, char *argv[]) {
     if (tamanho_arquivo == -1)
         return -1;
     
-    //#####################RETIRAR
-    printf("%s\n", texto_fonte);
-    //#####################RETIRAR
-
     // Estrutura texto
     cabecalho_texto *p_cabecalho_texto = estrutura_texto(&texto_fonte);
 
@@ -116,7 +126,7 @@ int main(int argc, char *argv[]) {
     char *nome_arquivo_sem_extensao = strdup(argv[1]);
     nome_arquivo_sem_extensao[tamanho_nome_arquivo - 4] = '\0';
 
-    if (codigo_fonte_contem_erro == true) {
+    if (codigo_fonte_contem_erro(p_cabecalho_texto) == true) {
         gera_arquivos_com_erros(p_cabecalho_texto, nome_arquivo_sem_extensao);
     }
     else {
@@ -140,6 +150,21 @@ int main(int argc, char *argv[]) {
 }
 
 void gera_arquivos_com_erros(cabecalho_texto *p_cabecalho_texto, char *nome_arquivo_sem_extensao) {
+    
+    // Imprime erros encontrados e respectivas linhas
+    linha *p_linha_atual = p_cabecalho_texto->p_primeira_linha;
+
+    for (long i = 1; p_linha_atual != NULL; i++) {
+        p_linha_atual->num_linha = i; // Enumera linhas
+        erro *p_erro_atual = p_linha_atual->p_primeiro_erro;
+        while (p_erro_atual != NULL) {
+            printf(" Linha %ld%s\n", p_linha_atual->num_linha, p_erro_atual->texto);
+            p_erro_atual = p_erro_atual->p_erro_posterior;
+        }
+        p_linha_atual = p_linha_atual->p_linha_posterior;
+        
+    }
+    
     // Arquivo .pre
     char nome_arquivo_pre_com_extensao[strlen(nome_arquivo_sem_extensao) + 5];
     sprintf(nome_arquivo_pre_com_extensao, "%s.pre", nome_arquivo_sem_extensao);
@@ -150,49 +175,34 @@ void gera_arquivos_com_erros(cabecalho_texto *p_cabecalho_texto, char *nome_arqu
         exit(1);
     }
 
-    linha *p_linha_atual = p_cabecalho_texto->p_primeira_linha;
+    p_linha_atual = p_cabecalho_texto->p_primeira_linha;
 
     while (p_linha_atual != NULL) {
-        fprintf(arquivo_pre, "%s\n", p_linha_atual->texto_linha);
+        fprintf(arquivo_pre, "%s", p_linha_atual->texto_linha);
         erro *p_erro_atual = p_linha_atual->p_primeiro_erro;
+        if (p_erro_atual != NULL) fputs(" <----", arquivo_pre);
         while (p_erro_atual != NULL) {
             fprintf(arquivo_pre, "%s", p_erro_atual->texto);
             p_erro_atual = p_erro_atual->p_erro_posterior;
         }
         p_linha_atual = p_linha_atual->p_linha_posterior;
+        if (p_linha_atual != NULL) fputs("\n", arquivo_pre);
     }
 
     fclose(arquivo_pre);
 
-    // Arquivo .o1
+    // Arquivos .o1 e.o2
     char nome_arquivo_o1_com_extensao[strlen(nome_arquivo_sem_extensao) + 4];
     sprintf(nome_arquivo_o1_com_extensao, "%s.o1", nome_arquivo_sem_extensao);
+    char nome_arquivo_o2_com_extensao[strlen(nome_arquivo_sem_extensao) + 4];
+    sprintf(nome_arquivo_o2_com_extensao, "%s.o2", nome_arquivo_sem_extensao);
 
     FILE *arquivo_o1 = fopen(nome_arquivo_o1_com_extensao, "w"); 
     if (arquivo_o1 == NULL) {
         perror("Erro ao criar o arquivo .o1");
         exit(1);
     }
-
-    p_linha_atual = p_cabecalho_texto->p_primeira_linha;
-
-    fputs("Código-objeto não gerado em razão dos erros abaixo.\nConfira o arquivo .pre!\n", arquivo_o1);
-
-    while (p_linha_atual != NULL) {    
-        erro *p_erro_atual = p_linha_atual->p_primeiro_erro;
-        while (p_erro_atual != NULL) {
-            fprintf(arquivo_o1, "\n%s", p_erro_atual->texto);
-            p_erro_atual = p_erro_atual->p_erro_posterior;
-        }
-        p_linha_atual = p_linha_atual->p_linha_posterior;
-    }
-
-    fclose(arquivo_o1);
-
-    // Arquivo .o2
-    char nome_arquivo_o2_com_extensao[strlen(nome_arquivo_sem_extensao) + 4];
-    sprintf(nome_arquivo_o2_com_extensao, "%s.o2", nome_arquivo_sem_extensao);
-
+   
     FILE *arquivo_o2 = fopen(nome_arquivo_o2_com_extensao, "w"); 
     if (arquivo_o2 == NULL) {
         perror("Erro ao criar o arquivo .o2");
@@ -201,26 +211,31 @@ void gera_arquivos_com_erros(cabecalho_texto *p_cabecalho_texto, char *nome_arqu
 
     p_linha_atual = p_cabecalho_texto->p_primeira_linha;
 
-    fputs("Código-objeto não gerado em razão dos erros abaixo.\nConfira o arquivo .pre!\n", arquivo_o2);
+    fputs("Código-objeto não gerado em razão dos erros abaixo. Confira o arquivo .pre!\n", arquivo_o1);
+    fputs("Código-objeto não gerado em razão dos erros abaixo. Confira o arquivo .pre!\n", arquivo_o2);
 
-    while (p_linha_atual != NULL) {        
+    while (p_linha_atual != NULL) {    
         erro *p_erro_atual = p_linha_atual->p_primeiro_erro;
         while (p_erro_atual != NULL) {
-            fprintf(arquivo_o2, "\n%s", p_erro_atual->texto);
+            fprintf(arquivo_o1, "\n Linha %ld%s", p_linha_atual->num_linha, p_erro_atual->texto);
+            fprintf(arquivo_o2, "\n Linha %ld%s", p_linha_atual->num_linha, p_erro_atual->texto);
             p_erro_atual = p_erro_atual->p_erro_posterior;
         }
         p_linha_atual = p_linha_atual->p_linha_posterior;
     }
-    fclose(arquivo_o2);
 
+    fclose(arquivo_o1);
+    fclose(arquivo_o2);
 }
 
 void cria_erro_na_linha(linha *p_linha_atual, char *mensagem_erro) {
     // Identifica último erro da linha
     erro *p_ultimo_erro_linha = p_linha_atual->p_primeiro_erro;
-    while (p_ultimo_erro_linha != NULL) {
-        p_ultimo_erro_linha = p_ultimo_erro_linha->p_erro_posterior;
-    } 
+    if (p_ultimo_erro_linha != NULL) {
+        while (p_ultimo_erro_linha->p_erro_posterior != NULL) {
+            p_ultimo_erro_linha = p_ultimo_erro_linha->p_erro_posterior;
+        } 
+    }
 
     // Aloca memória para o erro na heap
     erro *p_erro_atual = malloc(sizeof(erro));
@@ -256,7 +271,7 @@ bool codigo_fonte_contem_erro(cabecalho_texto *p_cabecalho_texto) {
                 if (linha_tem_rotulo == false) linha_tem_rotulo = true;
                 else {
                     codigo_fonte_contem_erro = true;
-                    cria_erro_na_linha(p_linha_atual, " # Erro sintático: múltiplos rótulos na mesma linha");
+                    cria_erro_na_linha(p_linha_atual, " | Erro sintático: múltiplos rótulos na mesma linha");
                 }
                 // Checa se rótulo já foi definido anteriormente (percorre lista de rótulos)
                 rotulo *p_rotulo_atual = p_primeiro_rotulo;
@@ -264,7 +279,7 @@ bool codigo_fonte_contem_erro(cabecalho_texto *p_cabecalho_texto) {
                     // Rótulo já foi definido em outro trecho do código
                     if (strcmp(p_token_atual->texto_token, p_rotulo_atual->texto_rotulo) == 0) {                    
                         codigo_fonte_contem_erro = true;
-                        cria_erro_na_linha(p_linha_atual, " # Erro semântico: redefinição de rótulo");
+                        cria_erro_na_linha(p_linha_atual, " | Erro semântico: redefinição de rótulo");
                         linha_redefine_rotulo = true;
                         break;
                     }
@@ -328,10 +343,24 @@ bool codigo_fonte_contem_erro(cabecalho_texto *p_cabecalho_texto) {
 
         for (int posicao_token = 0; p_token_atual != NULL; posicao_token++) {
             bool rotulo_foi_definido = false;
+            bool contem_erro_instrucao_indefinida = false;
 
             if (posicao_token == 0 && p_token_atual->tipo_token == ROTULO) linha_comeca_com_rotulo = true;
 
-            if (p_token_atual->tipo_token == NOME) {
+            // Checa validade de instrucao ou diretiva
+            if ((linha_comeca_com_rotulo == true && posicao_token == 1) || (linha_comeca_com_rotulo == false && posicao_token == 0)) {
+                if (p_token_atual->tipo_token == NUMERO     
+                    || p_token_atual->tipo_token == NOME
+                    || p_token_atual->tipo_token == MAIS
+                    || p_token_atual->tipo_token == VIRGULA) 
+                    {
+                    codigo_fonte_contem_erro = true;
+                    cria_erro_na_linha(p_linha_atual, " | Erro sintático: operação inexistente");
+                    contem_erro_instrucao_indefinida = true;
+                }
+            }
+
+            if (p_token_atual->tipo_token == NOME && contem_erro_instrucao_indefinida == false) {
                 // Checa se rótulo referido foi definido
                 rotulo *p_rotulo_atual = p_primeiro_rotulo;
                 while (p_rotulo_atual != NULL) {
@@ -345,19 +374,7 @@ bool codigo_fonte_contem_erro(cabecalho_texto *p_cabecalho_texto) {
 
                 if (rotulo_foi_definido == false) {
                     codigo_fonte_contem_erro = true;
-                    cria_erro_na_linha(p_linha_atual, " # Erro semântico: rótulo não definido");
-                }
-            }
-
-            // Checa validade de instrucao ou diretiva
-            if ((linha_comeca_com_rotulo == true && posicao_token == 1) || (linha_comeca_com_rotulo == false && posicao_token == 0)) {
-                if (p_token_atual->tipo_token == NUMERO     
-                    || p_token_atual->tipo_token == NOME
-                    || p_token_atual->tipo_token == MAIS
-                    || p_token_atual->tipo_token == VIRGULA) 
-                    {
-                    codigo_fonte_contem_erro = true;
-                    cria_erro_na_linha(p_linha_atual, " | Erro sintático: operação inexistente");
+                    cria_erro_na_linha(p_linha_atual, " | Erro semântico: rótulo não definido");
                 }
             }
             
@@ -718,23 +735,15 @@ void gera_arquivo_o2(posicao_memoria *p_primeira_posicao, char* nome_arquivo_sem
 }
 
 long obtem_texto_arquivo_fonte(int argc, char *argv[], char **p_p_texto_fonte) {
- /*   // RESTAURAR ##### 
-    
+
     // Trata erro de carga do programa
     if ((argc > 2) || argc == 1) {
         printf("# Erro na carga do programa!\nPara carregar o programa, use o terminal.\nIndique como único argumento o nome (com extensão e sem caminho) do arquivo ASM que deseja montar.\nO arquivo deve estar localizado no mesmo diretório do montador.");
         return -1;
     }
-
     
     // Abre arquivo ASM
     FILE *arquivo_fonte = fopen(argv[1], "r");
-    
- */   // RESTAURAR #####
-
-// RETIRAR #####
-FILE *arquivo_fonte = fopen(".\\casos_teste\\entradas\\correto_desformatado.asm", "r");
-// RETIRAR #########
 
     // Trata erro de abertura do arquivo ASM
     if (!arquivo_fonte) {
@@ -927,10 +936,6 @@ struct token *cria_token(char *texto_token) {
 
     p_token_atual->texto_token = texto_token;
 
-    // RETIRAR ###########################################################
-   // printf("%s : %i\n",p_token_atual->texto_token , p_token_atual->tipo_token);
-    // RETIRAR ########################################################### 
-   
     return p_token_atual;
 }
 
@@ -971,6 +976,7 @@ struct linha *cria_linha(char *texto_linha, linha *p_linha_anterior, bool *e_cor
     token *p_token_anterior = NULL; // Declara ponteiro para token anterior na lista
     p_linha_atual->p_primeiro_token = NULL;
     p_linha_atual->p_linha_anterior = NULL;
+    p_linha_atual->p_primeiro_erro = NULL;
 
     while (texto_token_buffer != NULL) {
         char *texto_token_heap = malloc(strlen(texto_token_buffer) + 1); // Aloca memória para o texto do token na heap
@@ -1058,10 +1064,6 @@ cabecalho_texto *estrutura_texto(char **p_p_texto_fonte) {
 
         p_linha_atual = cria_linha(texto_linha_heap, p_linha_anterior, &e_corpo_macro);
 
-//RETIRAR ##########################
- //       printf("%saaaaaaaaaaaaaaaaaa\n",p_linha_atual->texto_linha);
-//##################################3
-
         if (p_primeira_linha == NULL) p_primeira_linha = p_linha_atual; // Indica linha de início de texto
         else { // Atualiza referências sobre linha antecedente do texto
             p_linha_anterior->p_linha_posterior = p_linha_atual;
@@ -1077,8 +1079,6 @@ cabecalho_texto *estrutura_texto(char **p_p_texto_fonte) {
     }
 
     p_cabecalho_texto->p_primeira_linha = p_primeira_linha;
-    p_cabecalho_texto->p_ultima_linha = p_linha_atual;
-    p_cabecalho_texto->total_linha = 0; // não conta número de linhas ainda
 
     return p_cabecalho_texto;
 }

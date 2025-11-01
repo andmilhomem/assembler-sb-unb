@@ -4,7 +4,7 @@ SOMA_UM:
 MACRO       ; Definição de macro sem parâmetros (soma um)
 		    LOAD    X
    ADD ONE
-		    STORE X
+		    STORE x
 ENDMACRO
 
 TROCA: 		macro   &A,   &B 

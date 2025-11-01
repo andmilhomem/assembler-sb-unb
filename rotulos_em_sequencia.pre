@@ -1,0 +1,10 @@
+JMP INICIO
+MULTIPLICA: LOAD A
+MULT B
+STORE R
+INICIO: INPUT A
+INPUT B
+MULTIPLICA <---- | Erro sintático: operação inexistente
+OUTPUT R
+A: B: SPACE <---- | Erro sintático: múltiplos rótulos na mesma linha
+R: SPACE
